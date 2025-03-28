@@ -32,7 +32,8 @@ if 'materials' not in st.session_state:
         'name': ['Bột Mì', 'Đường', 'Trứng', 'Bơ', 'Socola', 'Tinh Chất Vani'],
         'unit': ['kg', 'kg', 'quả', 'kg', 'kg', 'ml'],
         'quantity': [50.0, 30.0, 200, 25.0, 15.0, 1000],
-        'price_per_unit': [46000, 69000, 5750, 230000, 345000, 2300]
+        'price_per_unit': [46000, 69000, 5750, 230000, 345000, 2300],
+        'used_quantity': [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]  
     })
 
 if 'recipes' not in st.session_state:
@@ -84,7 +85,7 @@ def update_materials_after_order(order_id):
         # Get recipe for this product
         product_recipe = st.session_state.recipes[st.session_state.recipes['product_id'] == product_id]
         
-        # For each material in the recipe, reduce quantity
+        # For each material in the recipe, reduce quantity and track usage
         for _, recipe_item in product_recipe.iterrows():
             material_id = recipe_item['material_id']
             material_quantity_needed = recipe_item['quantity'] * order_quantity
@@ -92,6 +93,9 @@ def update_materials_after_order(order_id):
             # Update material quantity
             material_idx = st.session_state.materials[st.session_state.materials['material_id'] == material_id].index[0]
             st.session_state.materials.at[material_idx, 'quantity'] -= material_quantity_needed
+            
+            # Update used quantity
+            st.session_state.materials.at[material_idx, 'used_quantity'] += material_quantity_needed
 
 # Function to calculate cost of goods for an order
 def calculate_cost_of_goods(order_id):
@@ -858,6 +862,10 @@ elif tab_selection == "Theo dõi Doanh thu":
 elif tab_selection == "Kho Nguyên liệu":
     st.header("Kho Nguyên liệu")
     
+    # In the Kho Nguyên liệu tab, before displaying materials
+    if 'used_quantity' not in st.session_state.materials.columns:
+        st.session_state.materials['used_quantity'] = 0.0
+
     # Check for out-of-stock or low stock items immediately
     if not st.session_state.materials.empty:
         out_of_stock_items = []
@@ -912,6 +920,7 @@ elif tab_selection == "Kho Nguyên liệu":
                 'Tên': materials_display['name'],
                 'Đơn vị': materials_display['unit'],
                 'Số lượng': materials_display['quantity'],
+                'Đã sử dụng': materials_display['used_quantity'],
                 'Giá/Đơn vị': [f"{price:,.0f} VND" for price in materials_display['price_per_unit']],
                 'Trạng thái': materials_display['Trạng thái']
             })
@@ -1041,7 +1050,7 @@ elif tab_selection == "Kho Nguyên liệu":
             st.info("Chưa có dữ liệu nguyên liệu để cập nhật.")
 
     with mat_tab3:
-        st.subheader("Nhập Nguyên liệu Mới")
+        st.subheader("Nhập Nguyên liệu")
     
         col1, col2 = st.columns(2)
         
@@ -1056,161 +1065,216 @@ elif tab_selection == "Kho Nguyên liệu":
             # Supplier information
             supplier = st.text_input("Nhà cung cấp", key="material_supplier")
         
-        # Select material to import
-        if not st.session_state.materials.empty:
-            # Create a list of options for the selectbox
-            material_options = []
-            for _, material in st.session_state.materials.iterrows():
-                status = ""
-                if material['quantity'] <= 0:
-                    status = " [HẾT HÀNG]"
-                elif material['quantity'] <= 5:
-                    status = " [SẮP HẾT]"
-                    
-                material_options.append(f"{material['material_id']} - {material['name']} ({material['unit']}){status}")
-            
-            selected_material = st.selectbox(
-                "Chọn Nguyên liệu để Nhập",
-                options=material_options,
-                key="import_material_select"
-            )
-            
-            if selected_material:
-                # Extract material_id from the selection
-                selected_material_id = selected_material.split(' - ')[0]
+        # Add radio buttons to select between importing existing material or creating new material
+        import_option = st.radio(
+            "Lựa chọn:",
+            ["Nhập kho nguyên liệu hiện có", "Thêm và nhập nguyên liệu mới"],
+            key="import_option"
+        )
+        
+        if import_option == "Nhập kho nguyên liệu hiện có":
+            # OPTION 1: IMPORT EXISTING MATERIAL
+            if not st.session_state.materials.empty:
+                # Create a list of options for the selectbox
+                material_options = []
+                for _, material in st.session_state.materials.iterrows():
+                    status = ""
+                    if material['quantity'] <= 0:
+                        status = " [HẾT HÀNG]"
+                    elif material['quantity'] <= 5:
+                        status = " [SẮP HẾT]"
+                        
+                    material_options.append(f"{material['material_id']} - {material['name']} ({material['unit']}){status}")
                 
-                # Find the material data
-                material_data = st.session_state.materials[st.session_state.materials['material_id'] == selected_material_id]
+                selected_material = st.selectbox(
+                    "Chọn Nguyên liệu để Nhập",
+                    options=material_options,
+                    key="import_material_select"
+                )
                 
-                if not material_data.empty:
-                    material_idx = material_data.index[0]
-                    current_quantity = st.session_state.materials.at[material_idx, 'quantity']
-                    current_unit = st.session_state.materials.at[material_idx, 'unit']
+                if selected_material:
+                    # Extract material_id from the selection
+                    selected_material_id = selected_material.split(' - ')[0]
                     
-                    # Show status information
-                    if current_quantity <= 0:
-                        st.error(f"⚠️ Nguyên liệu này hiện đang HẾT HÀNG! Số lượng hiện tại: {current_quantity} {current_unit}")
-                    elif current_quantity <= 5:
-                        st.warning(f"⚠️ Nguyên liệu này sắp hết hàng! Số lượng hiện tại: {current_quantity} {current_unit}")
-                    else:
-                        st.info(f"Số lượng hiện tại: {current_quantity} {current_unit}")
+                    # Find the material data
+                    material_data = st.session_state.materials[st.session_state.materials['material_id'] == selected_material_id]
                     
-                    # Input import details
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        import_quantity = st.number_input(
-                            f"Số lượng Nhập ({current_unit})", 
-                            min_value=0.1, 
-                            value=1.0, 
-                            step=0.1,
-                            key="import_quantity"
-                        )
-                    with col2:
-                        import_cost = st.number_input(
-                            "Tổng Chi phí (VND)", 
-                            min_value=1000, 
-                            value=100000, 
-                            step=1000,
-                            key="import_cost"
-                        )
-                    
-                    # Calculate unit price
-                    if import_quantity > 0:
-                        unit_price = import_cost / import_quantity
-                        st.write(f"Giá trên một đơn vị: {unit_price:,.0f} VND/{current_unit}")
-                    
-                    # Additional notes
-                    import_notes = st.text_area("Ghi chú", key="import_notes")
-                    
-                    # Confirm import
-                    if st.button("Xác nhận Nhập kho"):
-                        if not supplier:
-                            st.error("Vui lòng nhập thông tin nhà cung cấp")
-                        elif import_quantity <= 0:
-                            st.error("Vui lòng nhập số lượng hợp lệ")
+                    if not material_data.empty:
+                        material_idx = material_data.index[0]
+                        current_quantity = st.session_state.materials.at[material_idx, 'quantity']
+                        current_unit = st.session_state.materials.at[material_idx, 'unit']
+                        
+                        # Show status information
+                        if current_quantity <= 0:
+                            st.error(f"⚠️ Nguyên liệu này hiện đang HẾT HÀNG! Số lượng hiện tại: {current_quantity} {current_unit}")
+                        elif current_quantity <= 5:
+                            st.warning(f"⚠️ Nguyên liệu này sắp hết hàng! Số lượng hiện tại: {current_quantity} {current_unit}")
                         else:
-                            # Update material quantity
-                            new_quantity = current_quantity + import_quantity
-                            st.session_state.materials.at[material_idx, 'quantity'] = new_quantity
-                            
-                            # Update price (weighted average)
-                            current_total_value = current_quantity * st.session_state.materials.at[material_idx, 'price_per_unit']
-                            new_total_value = current_total_value + import_cost
-                            new_price_per_unit = new_total_value / new_quantity if new_quantity > 0 else 0
-                            
-                            st.session_state.materials.at[material_idx, 'price_per_unit'] = new_price_per_unit
-                            
-                            # Record the import cost
-                            if 'material_costs' not in st.session_state:
-                                st.session_state.material_costs = pd.DataFrame(columns=[
-                                    'date', 'material_id', 'quantity', 'total_cost', 'supplier'
-                                ])
+                            st.info(f"Số lượng hiện tại: {current_quantity} {current_unit}")
+                        
+                        # Input import details
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            import_quantity = st.number_input(
+                                f"Số lượng Nhập ({current_unit})", 
+                                min_value=0.1, 
+                                value=1.0, 
+                                step=0.1,
+                                key="import_quantity"
+                            )
+                        with col2:
+                            import_cost = st.number_input(
+                                "Tổng Chi phí (VND)", 
+                                min_value=1000, 
+                                value=100000, 
+                                step=1000,
+                                key="import_cost"
+                            )
+                        
+                        # Calculate unit price
+                        if import_quantity > 0:
+                            unit_price = import_cost / import_quantity
+                            st.write(f"Giá trên một đơn vị: {unit_price:,.0f} VND/{current_unit}")
+                        
+                        # Additional notes
+                        import_notes = st.text_area("Ghi chú", key="import_notes")
+                        
+                        # Confirm import
+                        if st.button("Xác nhận Nhập kho"):
+                            if not supplier:
+                                st.error("Vui lòng nhập thông tin nhà cung cấp")
+                            elif import_quantity <= 0:
+                                st.error("Vui lòng nhập số lượng hợp lệ")
+                            else:
+                                # Update material quantity
+                                new_quantity = current_quantity + import_quantity
+                                st.session_state.materials.at[material_idx, 'quantity'] = new_quantity
                                 
-                            new_import = pd.DataFrame({
-                                'date': [import_date],
-                                'material_id': [selected_material_id],
-                                'quantity': [import_quantity],
-                                'total_cost': [import_cost],
-                                'supplier': [supplier]
-                            })
-                            
-                            st.session_state.material_costs = pd.concat([st.session_state.material_costs, new_import], ignore_index=True)
-                            
-                            st.success(f"Đã nhập {import_quantity} {current_unit} nguyên liệu {selected_material_id} thành công!")
-                            st.write(f"Số lượng mới: {new_quantity} {current_unit}")
-                            st.write(f"Giá đơn vị mới (trung bình): {new_price_per_unit:,.0f} VND/{current_unit}")
+                                # Update price (weighted average)
+                                current_total_value = current_quantity * st.session_state.materials.at[material_idx, 'price_per_unit']
+                                new_total_value = current_total_value + import_cost
+                                new_price_per_unit = new_total_value / new_quantity if new_quantity > 0 else 0
+                                
+                                st.session_state.materials.at[material_idx, 'price_per_unit'] = new_price_per_unit
+                                
+                                # Record the import cost
+                                if 'material_costs' not in st.session_state:
+                                    st.session_state.material_costs = pd.DataFrame(columns=[
+                                        'date', 'material_id', 'quantity', 'total_cost', 'supplier'
+                                    ])
+                                    
+                                new_import = pd.DataFrame({
+                                    'date': [import_date],
+                                    'material_id': [selected_material_id],
+                                    'quantity': [import_quantity],
+                                    'total_cost': [import_cost],
+                                    'supplier': [supplier]
+                                })
+                                
+                                st.session_state.material_costs = pd.concat([st.session_state.material_costs, new_import], ignore_index=True)
+                                
+                                st.success(f"Đã nhập {import_quantity} {current_unit} nguyên liệu {selected_material_id} thành công!")
+                                st.write(f"Số lượng mới: {new_quantity} {current_unit}")
+                                st.write(f"Giá đơn vị mới (trung bình): {new_price_per_unit:,.0f} VND/{current_unit}")
+            else:
+                st.info("Chưa có dữ liệu nguyên liệu. Vui lòng thêm nguyên liệu mới.")
+                
         else:
-            st.info("Chưa có dữ liệu nguyên liệu. Vui lòng thêm nguyên liệu trước khi nhập kho.")
-            
-            # Add option to create new material
+            # OPTION 2: CREATE AND IMPORT NEW MATERIAL
             st.subheader("Thêm Nguyên liệu Mới")
             
-            new_material_id = st.text_input("Mã Nguyên liệu (vd: M007)", key="new_material_id")
+            # Generate a default material ID suggestion
+            default_material_id = ""
+            if not st.session_state.materials.empty:
+                existing_ids = st.session_state.materials['material_id'].tolist()
+                # Extract numeric parts from existing IDs that start with "M"
+                numeric_parts = []
+                for id in existing_ids:
+                    if id.startswith("M") and id[1:].isdigit():
+                        numeric_parts.append(int(id[1:]))
+                
+                if numeric_parts:
+                    # Suggest next ID number
+                    next_id = max(numeric_parts) + 1
+                    default_material_id = f"M{next_id:03d}"
+                else:
+                    default_material_id = "M001"
+            else:
+                default_material_id = "M001"
+            
+            new_material_id = st.text_input("Mã Nguyên liệu", value=default_material_id, key="new_material_id")
             new_material_name = st.text_input("Tên Nguyên liệu", key="new_material_name")
-            new_material_unit = st.text_input("Đơn vị", key="new_material_unit")
+            
+            # Suggest common units
+            unit_options = ["kg", "g", "lít", "ml", "cái", "túi", "gói", "thùng", "hộp", "chai", "Khác"]
+            selected_unit_option = st.selectbox("Đơn vị", options=unit_options, key="unit_select")
+            
+            if selected_unit_option == "Khác":
+                new_material_unit = st.text_input("Nhập đơn vị mới:", key="custom_unit")
+            else:
+                new_material_unit = selected_unit_option
             
             col1, col2 = st.columns(2)
             with col1:
-                new_material_quantity = st.number_input("Số lượng ban đầu", min_value=0.0, value=0.0, step=0.1, key="new_material_quantity")
+                new_material_quantity = st.number_input("Số lượng nhập", min_value=0.1, value=1.0, step=0.1, key="new_material_quantity")
             with col2:
-                new_material_price = st.number_input("Giá trên đơn vị", min_value=1, value=10000, step=1000, key="new_material_price")
+                new_material_cost = st.number_input("Tổng chi phí (VND)", min_value=1000, value=100000, step=1000, key="new_material_cost")
             
-            if st.button("Thêm Nguyên liệu"):
-                if not new_material_id or not new_material_name or not new_material_unit:
+            # Calculate unit price for new material
+            if new_material_quantity > 0:
+                unit_price = new_material_cost / new_material_quantity
+                st.write(f"Giá trên một đơn vị: {unit_price:,.0f} VND/{new_material_unit or selected_unit_option}")
+            
+            # Additional notes
+            new_material_notes = st.text_area("Ghi chú", key="new_material_notes")
+            
+            if st.button("Thêm và Nhập kho Nguyên liệu Mới"):
+                if not new_material_id or not new_material_name or not (new_material_unit or selected_unit_option != "Khác"):
                     st.error("Vui lòng điền đầy đủ thông tin nguyên liệu")
+                elif not supplier:
+                    st.error("Vui lòng nhập thông tin nhà cung cấp")
                 elif new_material_id in st.session_state.materials['material_id'].values:
                     st.error(f"Mã nguyên liệu {new_material_id} đã tồn tại")
                 else:
+                    # Calculate the price per unit
+                    price_per_unit = new_material_cost / new_material_quantity if new_material_quantity > 0 else 0
+                    
                     # Add new material
                     new_material = pd.DataFrame({
                         'material_id': [new_material_id],
                         'name': [new_material_name],
-                        'unit': [new_material_unit],
+                        'unit': [new_material_unit if selected_unit_option == "Khác" else selected_unit_option],
                         'quantity': [new_material_quantity],
-                        'price_per_unit': [new_material_price]
+                        'price_per_unit': [price_per_unit],
+                        'used_quantity': [0.0]
                     })
                     
-                    st.session_state.materials = pd.concat([st.session_state.materials, new_material], ignore_index=True)
-                    st.success(f"Nguyên liệu {new_material_id} đã được thêm thành công!")
+                    # If materials DataFrame does not exist yet, create it
+                    if 'materials' not in st.session_state or st.session_state.materials.empty:
+                        st.session_state.materials = new_material
+                    else:
+                        st.session_state.materials = pd.concat([st.session_state.materials, new_material], ignore_index=True)
                     
-                    # Record the initial inventory if quantity > 0
-                    if new_material_quantity > 0 and supplier:
-                        if 'material_costs' not in st.session_state:
-                            st.session_state.material_costs = pd.DataFrame(columns=[
-                                'date', 'material_id', 'quantity', 'total_cost', 'supplier'
-                            ])
-                        
-                        initial_cost = new_material_quantity * new_material_price
-                        
-                        initial_import = pd.DataFrame({
-                            'date': [import_date],
-                            'material_id': [new_material_id],
-                            'quantity': [new_material_quantity],
-                            'total_cost': [initial_cost],
-                            'supplier': [supplier]
-                        })
-                        
-                        st.session_state.material_costs = pd.concat([st.session_state.material_costs, initial_import], ignore_index=True)
+                    # Record the initial inventory
+                    if 'material_costs' not in st.session_state:
+                        st.session_state.material_costs = pd.DataFrame(columns=[
+                            'date', 'material_id', 'quantity', 'total_cost', 'supplier'
+                        ])
+                    
+                    initial_import = pd.DataFrame({
+                        'date': [import_date],
+                        'material_id': [new_material_id],
+                        'quantity': [new_material_quantity],
+                        'total_cost': [new_material_cost],
+                        'supplier': [supplier]
+                    })
+                    
+                    st.session_state.material_costs = pd.concat([st.session_state.material_costs, initial_import], ignore_index=True)
+                    
+                    unit_display = new_material_unit if selected_unit_option == "Khác" else selected_unit_option
+                    st.success(f"Nguyên liệu mới {new_material_id} - {new_material_name} đã được thêm và nhập kho thành công!")
+                    st.write(f"Đã nhập: {new_material_quantity} {unit_display}")
+                    st.write(f"Giá đơn vị: {price_per_unit:,.0f} VND/{unit_display}")
 
 # Product Management Tab
 elif tab_selection == "Quản lý Sản phẩm":
