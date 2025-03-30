@@ -1,0 +1,2 @@
+invoice_id,order_id,date,customer_name,total_amount,payment_method
+INV-1A6457AA,ORD-7F4BDA5D,2025-03-30,123,575000,Tiền mặt

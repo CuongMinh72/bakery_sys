@@ -5,7 +5,21 @@ import uuid
 import os
 import base64
 from io import BytesIO
+from reportlab.lib.pagesizes import letter
+from reportlab.lib import colors
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.units import inch
+import io
+from reportlab.pdfgen import canvas
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.units import cm
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
+from reportlab.lib.utils import ImageReader
+import base64
 import warnings
+import json
 
 # Suppress the ScriptRunContext warnings
 warnings.filterwarnings('ignore', message='.*missing ScriptRunContext.*')
@@ -17,60 +31,167 @@ st.set_page_config(
     layout="wide"
 )
 
+def save_dataframe(df, filename):
+    """Save a dataframe to a CSV file"""
+    try:
+        # Use the specific directory path
+        data_dir = r"C:\\Users\\Computer\\PycharmProjects\\bakery_sys\\bakery_data"
+        
+        # Create data directory if it doesn't exist
+        if not os.path.exists(data_dir):
+            os.makedirs(data_dir)
+        
+        # Save to CSV in the specified directory
+        filepath = os.path.join(data_dir, filename)
+        df.to_csv(filepath, index=False)
+        return True
+    except Exception as e:
+        print(f"Error saving {filename}: {e}")
+        return False
+
+def load_dataframe(filename, default_df):
+    """Load a dataframe from a CSV file or return the default if file doesn't exist"""
+    try:
+        # Use the specific directory path
+        data_dir = r"C:\\Users\\Computer\\PycharmProjects\\bakery_sys\bakery_data"
+        filepath = os.path.join(data_dir, filename)
+        
+        if os.path.exists(filepath):
+            return pd.read_csv(filepath)
+        return default_df
+    except Exception as e:
+        print(f"Error loading {filename}: {e}")
+        return default_df
+    
 # Initialize session state variables if they don't exist
+# Default dataframes (will be used if files don't exist)
+default_products = pd.DataFrame({
+    'product_id': ['P001', 'P002', 'P003', 'P004'],
+    'name': ['Bánh Socola', 'Bánh Sừng Bò', 'Bánh Mì', 'Bánh Cupcake'],
+    'price': [575000, 80500, 138000, 57500],
+    'category': ['Bánh Ngọt', 'Bánh Ngọt', 'Bánh Mì', 'Bánh Ngọt']
+})
+
+default_materials = pd.DataFrame({
+    'material_id': ['M001', 'M002', 'M003', 'M004', 'M005', 'M006'],
+    'name': ['Bột Mì', 'Đường', 'Trứng', 'Bơ', 'Socola', 'Tinh Chất Vani'],
+    'unit': ['kg', 'kg', 'quả', 'kg', 'kg', 'ml'],
+    'quantity': [50.0, 30.0, 200, 25.0, 15.0, 1000],
+    'price_per_unit': [46000, 69000, 5750, 230000, 345000, 2300],
+    'used_quantity': [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]  
+})
+
+default_recipes = pd.DataFrame({
+    'product_id': ['P001', 'P001', 'P001', 'P001', 'P001', 
+                  'P002', 'P002', 'P002', 'P002',
+                  'P003', 'P003', 'P003',
+                  'P004', 'P004', 'P004', 'P004'],
+    'material_id': ['M001', 'M002', 'M003', 'M004', 'M005',
+                   'M001', 'M002', 'M004', 'M003',
+                   'M001', 'M003', 'M004',
+                   'M001', 'M002', 'M003', 'M004'],
+    'quantity': [0.5, 0.4, 4, 0.3, 0.2,
+                0.1, 0.05, 0.1, 1,
+                1.0, 1, 0.1,
+                0.1, 0.15, 1, 0.05]
+})
+
+default_orders = pd.DataFrame(columns=[
+    'order_id', 'date', 'customer_name', 'customer_phone', 'total_amount', 'status'
+])
+
+default_order_items = pd.DataFrame(columns=[
+    'order_id', 'product_id', 'quantity', 'price', 'subtotal'
+])
+
+default_invoices = pd.DataFrame(columns=[
+    'invoice_id', 'order_id', 'date', 'customer_name', 'total_amount', 'payment_method'
+])
+
+default_income = pd.DataFrame(columns=[
+    'date', 'total_sales', 'cost_of_goods', 'profit'
+])
+
+default_material_costs = pd.DataFrame(columns=[
+    'date', 'material_id', 'quantity', 'total_cost', 'supplier'
+])
+
+default_invoice_status = pd.DataFrame(columns=[
+    'invoice_id', 'is_completed', 'completion_date', 'notes'
+])
+
+# Load data from files or use defaults
 if 'products' not in st.session_state:
-    st.session_state.products = pd.DataFrame({
-        'product_id': ['P001', 'P002', 'P003', 'P004'],
-        'name': ['Bánh Socola', 'Bánh Sừng Bò', 'Bánh Mì', 'Bánh Cupcake'],
-        'price': [575000, 80500, 138000, 57500],
-        'category': ['Bánh Ngọt', 'Bánh Ngọt', 'Bánh Mì', 'Bánh Ngọt']
-    })
+    st.session_state.products = load_dataframe("products.csv", default_products)
 
 if 'materials' not in st.session_state:
-    st.session_state.materials = pd.DataFrame({
-        'material_id': ['M001', 'M002', 'M003', 'M004', 'M005', 'M006'],
-        'name': ['Bột Mì', 'Đường', 'Trứng', 'Bơ', 'Socola', 'Tinh Chất Vani'],
-        'unit': ['kg', 'kg', 'quả', 'kg', 'kg', 'ml'],
-        'quantity': [50.0, 30.0, 200, 25.0, 15.0, 1000],
-        'price_per_unit': [46000, 69000, 5750, 230000, 345000, 2300],
-        'used_quantity': [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]  
-    })
+    st.session_state.materials = load_dataframe("materials.csv", default_materials)
 
 if 'recipes' not in st.session_state:
-    st.session_state.recipes = pd.DataFrame({
-        'product_id': ['P001', 'P001', 'P001', 'P001', 'P001', 
-                      'P002', 'P002', 'P002', 'P002',
-                      'P003', 'P003', 'P003',
-                      'P004', 'P004', 'P004', 'P004'],
-        'material_id': ['M001', 'M002', 'M003', 'M004', 'M005',
-                       'M001', 'M002', 'M004', 'M003',
-                       'M001', 'M003', 'M004',
-                       'M001', 'M002', 'M003', 'M004'],
-        'quantity': [0.5, 0.4, 4, 0.3, 0.2,
-                    0.1, 0.05, 0.1, 1,
-                    1.0, 1, 0.1,
-                    0.1, 0.15, 1, 0.05]
-    })
+    st.session_state.recipes = load_dataframe("recipes.csv", default_recipes)
 
 if 'orders' not in st.session_state:
-    st.session_state.orders = pd.DataFrame(columns=[
-        'order_id', 'date', 'customer_name', 'customer_phone', 'total_amount', 'status'
-    ])
+    st.session_state.orders = load_dataframe("orders.csv", default_orders)
 
 if 'order_items' not in st.session_state:
-    st.session_state.order_items = pd.DataFrame(columns=[
-        'order_id', 'product_id', 'quantity', 'price', 'subtotal'
-    ])
+    st.session_state.order_items = load_dataframe("order_items.csv", default_order_items)
 
 if 'invoices' not in st.session_state:
-    st.session_state.invoices = pd.DataFrame(columns=[
-        'invoice_id', 'order_id', 'date', 'customer_name', 'total_amount', 'payment_method'
-    ])
+    st.session_state.invoices = load_dataframe("invoices.csv", default_invoices)
 
 if 'income' not in st.session_state:
-    st.session_state.income = pd.DataFrame(columns=[
-        'date', 'total_sales', 'cost_of_goods', 'profit'
-    ])
+    st.session_state.income = load_dataframe("income.csv", default_income)
+
+if 'material_costs' not in st.session_state:
+    st.session_state.material_costs = load_dataframe("material_costs.csv", default_material_costs)
+
+if 'invoice_status' not in st.session_state:
+    st.session_state.invoice_status = load_dataframe("invoice_status.csv", default_invoice_status)
+    
+# Function to ensure we have Unicode support for Vietnamese
+def setup_vietnamese_font():
+    try:
+        # Try to use Roboto fonts from specified path
+        roboto_base_dir = "C:\\Users\\Computer\\PycharmProjects\\bakery_sys\\fonts\\static"
+        
+        # Check if we can register both Regular and Bold variants
+        try:
+            regular_path = f"{roboto_base_dir}\\Roboto-Regular.ttf"
+            bold_path = f"{roboto_base_dir}\\Roboto-Bold.ttf"
+            
+            # Register the regular font
+            pdfmetrics.registerFont(TTFont('Roboto', regular_path))
+            
+            # Register the bold font
+            pdfmetrics.registerFont(TTFont('Roboto-Bold', bold_path))
+            
+            return 'Roboto'
+        except Exception as e:
+            # Fall back to Helvetica if there's any issue with Roboto
+            return 'Helvetica'
+            
+    except Exception as e:
+        # Fall back to Helvetica if there's any issue
+        return 'Helvetica'
+
+def save_all_data():
+    """Save all dataframes to CSV files"""
+    save_dataframe(st.session_state.products, "products.csv")
+    save_dataframe(st.session_state.materials, "materials.csv")
+    save_dataframe(st.session_state.recipes, "recipes.csv")
+    save_dataframe(st.session_state.orders, "orders.csv")
+    save_dataframe(st.session_state.order_items, "order_items.csv")
+    save_dataframe(st.session_state.invoices, "invoices.csv")
+    save_dataframe(st.session_state.income, "income.csv")
+    
+    if 'material_costs' in st.session_state:
+        save_dataframe(st.session_state.material_costs, "material_costs.csv")
+    
+    if 'invoice_status' in st.session_state:
+        save_dataframe(st.session_state.invoice_status, "invoice_status.csv")
+    
+    if 'product_costs' in st.session_state:
+        save_dataframe(st.session_state.product_costs, "product_costs.csv") 
 
 # Function to update material quantities after an order
 def update_materials_after_order(order_id):
@@ -130,27 +251,51 @@ def calculate_cost_of_goods(order_id):
 def update_income(order_id):
     order_data = st.session_state.orders[st.session_state.orders['order_id'] == order_id].iloc[0]
     order_date = order_data['date']
-    order_amount = order_data['total_amount']
+    
+    # Get product amount and shipping fee
+    product_amount = order_data['total_amount']
+    shipping_fee = order_data.get('shipping_fee', 0)
+    
+    # Calculate total with shipping
+    total_amount = product_amount + shipping_fee
+    
+    # Calculate cost of goods (materials only, not shipping)
     cost_of_goods = calculate_cost_of_goods(order_id)
-    profit = order_amount - cost_of_goods
+    
+    # Calculate profit (including shipping as revenue)
+    profit = total_amount - cost_of_goods
     
     # Check if date already exists in income DataFrame
     if order_date in st.session_state.income['date'].values:
         idx = st.session_state.income[st.session_state.income['date'] == order_date].index[0]
-        st.session_state.income.at[idx, 'total_sales'] += order_amount
+        st.session_state.income.at[idx, 'total_sales'] += total_amount
         st.session_state.income.at[idx, 'cost_of_goods'] += cost_of_goods
         st.session_state.income.at[idx, 'profit'] += profit
+        # Track shipping revenue separately if needed
+        if 'shipping_revenue' in st.session_state.income.columns:
+            st.session_state.income.at[idx, 'shipping_revenue'] += shipping_fee
+        else:
+            st.session_state.income['shipping_revenue'] = 0
+            st.session_state.income.at[idx, 'shipping_revenue'] = shipping_fee
     else:
+        # Create new row for this date
+        if 'shipping_revenue' not in st.session_state.income.columns:
+            # Add shipping revenue column if it doesn't exist
+            st.session_state.income['shipping_revenue'] = 0
+            
         new_row = pd.DataFrame({
             'date': [order_date],
-            'total_sales': [order_amount],
+            'total_sales': [total_amount],
             'cost_of_goods': [cost_of_goods],
-            'profit': [profit]
+            'profit': [profit],
+            'shipping_revenue': [shipping_fee]
         })
+        
         st.session_state.income = pd.concat([st.session_state.income, new_row], ignore_index=True)
 
 # Function to generate invoice content
-def generate_invoice_content(invoice_id, order_id):
+def generate_invoice_content(invoice_id, order_id, as_pdf=False):
+    """Generate invoice content either as text or PDF"""
     order_data = st.session_state.orders[st.session_state.orders['order_id'] == order_id].iloc[0]
     order_items = st.session_state.order_items[st.session_state.order_items['order_id'] == order_id]
     
@@ -161,34 +306,301 @@ def generate_invoice_content(invoice_id, order_id):
         how='left'
     )
     
-    invoice_content = f"""
-    HÓA ĐƠN #{invoice_id}
-    -----------------------------------------
-    Ngày: {order_data['date']}
-    Đơn hàng #: {order_id}
+    # Get shipping fee and customer address from order data (will be 0 if not specified)
+    shipping_fee = order_data.get('shipping_fee', 0)
+    customer_address = order_data.get('customer_address', '')
     
-    Khách hàng: {order_data['customer_name']}
-    Điện thoại: {order_data['customer_phone']}
+    # Calculate total amount
+    total_amount = order_data['total_amount'] + shipping_fee
     
-    CÁC MẶT HÀNG:
-    """
+    # Store address and phone information
+    store_address = "Đ/C: Số 10 ngõ 298 Đê La Thành, Đống Đa, Hà Nội"
+    store_phone = "ĐT: 0988 159 268"
     
-    for _, item in order_items.iterrows():
-        invoice_content += f"\n{item['name']} x {item['quantity']} @ {item['price']:,.0f} VND = {item['subtotal']:,.0f} VND"
-    
-    invoice_content += f"""
-    -----------------------------------------
-    TỔNG CỘNG: {order_data['total_amount']:,.0f} VND
-    
-    Cảm ơn quý khách đã mua hàng!
-    """
-    
-    return invoice_content
+    if not as_pdf:
+        # Text version without invoice number
+        invoice_content = f"""
+        ThuXuan Cake
+        {store_address}
+        {store_phone}
+        
+        HÓA ĐƠN 
+        -----------------------------------------
+        Ngày: {order_data['date']}
+        Đơn hàng #: {order_id}
+        
+        Khách hàng: {order_data['customer_name']}
+        Điện thoại: {order_data['customer_phone']}
+        Địa chỉ: {customer_address}
+        
+        CÁC MẶT HÀNG:
+        """
+        
+        for _, item in order_items.iterrows():
+            invoice_content += f"\n{item['name']} x {item['quantity']} @ {item['price']:,.0f} VND = {item['subtotal']:,.0f} VND"
+        
+        invoice_content += f"""
+        -----------------------------------------
+        Tổng sản phẩm: {order_data['total_amount']:,.0f} VND
+        Phí vận chuyển: {shipping_fee:,.0f} VND
+        TỔNG CỘNG: {total_amount:,.0f} VND
+        
+        Cảm ơn quý khách!
+        """
+        
+        return invoice_content
+    else:
+        # PDF version without invoice number
+        buffer = io.BytesIO()
+        width, height = A4
+        
+        # Create the PDF
+        c = canvas.Canvas(buffer, pagesize=A4)
+        
+        # Set up font for Vietnamese
+        font_name = setup_vietnamese_font()
+        
+        # Title section - Handle font situations carefully
+        if font_name == 'Roboto':
+            try:
+                c.setFont("Roboto-Bold", 22)  # Increased from 18 to 22
+            except:
+                c.setFont("Helvetica-Bold", 22)
+        else:
+            c.setFont("Helvetica-Bold", 22)
+            
+        c.drawCentredString(width/2, height - 2*cm, "THUXUAN CAKE WORKSHOP & STUDIO")
+        
+        # Add store address and phone
+        if font_name == 'Roboto':
+            try:
+                c.setFont("Roboto", 12)  # Increased from 10 to 12
+            except:
+                c.setFont("Helvetica", 12)
+        else:
+            c.setFont("Helvetica", 12)
+        
+        c.drawCentredString(width/2, height - 2.5*cm, store_address)
+        c.drawCentredString(width/2, height - 3*cm, store_phone)
+        
+        # Invoice header
+        if font_name == 'Roboto':
+            try:
+                c.setFont("Roboto-Bold", 18)  # Increased from 16 to 18
+            except:
+                c.setFont("Helvetica-Bold", 18)
+        else:
+            c.setFont("Helvetica-Bold", 18)
+            
+        c.drawCentredString(width/2, height - 4*cm, "HÓA ĐƠN BÁN HÀNG")
+        
+        # Order details
+        if font_name == 'Roboto':
+            try:
+                c.setFont("Roboto", 13)  # Increased from 11 to 13
+            except:
+                c.setFont("Helvetica", 13)
+        else:
+            c.setFont("Helvetica", 13)
+            
+        y_position = height - 5*cm
+        c.drawString(2*cm, y_position, f"Ngày: {order_data['date']}")
+        y_position -= 0.7*cm  # Slightly increased spacing
+        c.drawString(2*cm, y_position, f"Đơn hàng #: {order_id}")
+        
+        # Customer details
+        y_position -= 1.1*cm  # Slightly increased spacing
+        c.drawString(2*cm, y_position, f"Khách hàng: {order_data['customer_name']}")
+        y_position -= 0.7*cm  # Slightly increased spacing
+        c.drawString(2*cm, y_position, f"Điện thoại: {order_data['customer_phone']}")
+        y_position -= 0.7*cm  # Slightly increased spacing
+        c.drawString(2*cm, y_position, f"Địa chỉ: {customer_address}")
+        
+        # Items header
+        y_position -= 1.3*cm  # Slightly increased spacing
+        if font_name == 'Roboto':
+            try:
+                c.setFont("Roboto-Bold", 14)  # Increased from 12 to 14
+            except:
+                c.setFont("Helvetica-Bold", 14)
+        else:
+            c.setFont("Helvetica-Bold", 14)
+            
+        c.drawString(2*cm, y_position, "CÁC MẶT HÀNG:")
+        
+        # Table headers
+        y_position -= 0.9*cm  # Slightly increased spacing
+        if font_name == 'Roboto':
+            try:
+                c.setFont("Roboto-Bold", 12)  # Increased from 10 to 12
+            except:
+                c.setFont("Helvetica-Bold", 12)
+        else:
+            c.setFont("Helvetica-Bold", 12)
+            
+        c.drawString(2*cm, y_position, "Sản phẩm")
+        c.drawString(10*cm, y_position, "Số lượng")
+        c.drawString(12.5*cm, y_position, "Đơn giá (VND)")
+        c.drawString(16.5*cm, y_position, "Thành tiền (VND)")
+        
+        # Header line
+        y_position -= 0.3*cm  # Slightly increased spacing
+        c.line(2*cm, y_position, 19*cm, y_position)
+        
+        # Item rows
+        y_position -= 0.8*cm  # Slightly increased spacing
+        if font_name == 'Roboto':
+            try:
+                c.setFont("Roboto", 12)  # Increased from 10 to 12
+            except:
+                c.setFont("Helvetica", 12)
+        else:
+            c.setFont("Helvetica", 12)
+        
+        for _, item in order_items.iterrows():
+            # For Vietnamese product names, draw without accents if font support is an issue
+            c.drawString(2*cm, y_position, item['name'])
+            c.drawRightString(11*cm, y_position, str(item['quantity']))
+            c.drawRightString(15*cm, y_position, f"{item['price']:,.0f}")
+            c.drawRightString(19*cm, y_position, f"{item['subtotal']:,.0f}")
+            y_position -= 0.8*cm  # Slightly increased spacing
+            
+            # Check if we need to start a new page
+            if y_position < 3*cm:
+                c.showPage()
+                if font_name == 'Roboto':
+                    try:
+                        c.setFont("Roboto", 12)  # Increased from 10 to 12
+                    except:
+                        c.setFont("Helvetica", 12)
+                else:
+                    c.setFont("Helvetica", 12)
+                y_position = height - 3*cm
+        
+        # Total line
+        c.line(2*cm, y_position, 19*cm, y_position)
+        y_position -= 0.8*cm  # Slightly increased spacing
+        
+        # Static QR code image
+        qr_y_position = y_position - 4*cm  # Position for QR code
+        
+        try:
+            # Path to your static QR code image - replace with the actual path to your QR code image
+            qr_image_path = "C:\\Users\\Computer\\PycharmProjects\\bakery_sys\\qr_cua_xuan.png"
+            
+            # Place QR code image on PDF
+            c.drawImage(qr_image_path, 2*cm, qr_y_position, width=4*cm, height=4*cm)
+            
+            # Add text below QR code
+            if font_name == 'Roboto':
+                try:
+                    c.setFont("Roboto-Bold", 10)
+                except:
+                    c.setFont("Helvetica-Bold", 10)
+            else:
+                c.setFont("Helvetica-Bold", 10)
+                
+            c.drawCentredString(4*cm, qr_y_position - 0.5*cm, "Quét để thanh toán")
 
-def download_link(content, filename, text):
+            # Add account number line (0.8cm below the previous text)
+            if font_name == 'Roboto':
+                try:
+                    c.setFont("Roboto", 9)
+                except:
+                    c.setFont("Helvetica", 9)
+            else:
+                c.setFont("Helvetica", 9)
+
+            # You can replace this with your actual account number
+            account_number = "19037177788018"
+            c.drawCentredString(4*cm, qr_y_position - 1.3*cm, f"STK: {account_number}")
+
+            # Add account name line (0.5cm below the account number)
+            if font_name == 'Roboto':
+                try:
+                    c.setFont("Roboto", 9)
+                except:
+                    c.setFont("Helvetica", 9)
+            else:
+                c.setFont("Helvetica", 9)
+
+            # You can replace this with your actual account name
+            account_name = "NGUYEN THU XUAN"
+            c.drawCentredString(4*cm, qr_y_position - 1.8*cm, f"Tên: {account_name}")
+            
+        except Exception as e:
+            # If QR code image insertion fails, just add a note
+            if font_name == 'Roboto':
+                try:
+                    c.setFont("Roboto", 10)  # Increased from 8 to 10
+                except:
+                    c.setFont("Helvetica", 10)
+            else:
+                c.setFont("Helvetica", 10)
+                
+            c.drawString(2*cm, qr_y_position + 2*cm, "Thanh toán chuyển khoản")
+        
+        # Subtotal amount
+        if font_name == 'Roboto':
+            try:
+                c.setFont("Roboto", 13)  # Increased from 10 to 13
+            except:
+                c.setFont("Helvetica", 13)
+        else:
+            c.setFont("Helvetica", 13)
+            
+        c.drawString(12.5*cm, y_position, "Tổng sản phẩm:")
+        c.drawRightString(19*cm, y_position, f"{order_data['total_amount']:,.0f} VND")
+        
+        # Shipping fee
+        y_position -= 0.8*cm  # Slightly increased spacing
+        c.drawString(12.5*cm, y_position, "Phí vận chuyển:")
+        c.drawRightString(19*cm, y_position, f"{shipping_fee:,.0f} VND")
+        
+        # Final total with shipping
+        y_position -= 0.8*cm  # Slightly increased spacing
+        if font_name == 'Roboto':
+            try:
+                c.setFont("Roboto-Bold", 14)  # Increased from 10 to 14
+            except:
+                c.setFont("Helvetica-Bold", 14)
+        else:
+            c.setFont("Helvetica-Bold", 14)
+            
+        c.drawString(12.5*cm, y_position, "TỔNG CỘNG:")
+        c.drawRightString(19*cm, y_position, f"{total_amount:,.0f} VND")
+        
+        # Thank you note
+        bottom_margin = 2*cm  # Distance from the bottom of the page
+        thank_you_y_position = bottom_margin  # Position from the bottom
+
+        if font_name == 'Roboto':
+            try:
+                c.setFont("Roboto", 13)  # Increased from 11 to 13
+            except:
+                c.setFont("Helvetica", 13)
+        else:
+            c.setFont("Helvetica", 13)
+            
+        c.drawCentredString(width/2, thank_you_y_position, "Cảm ơn quý khách!")
+        
+        # Save the PDF
+        c.save()
+        pdf_data = buffer.getvalue()
+        buffer.close()
+        
+        return pdf_data
+
+def download_link(content, filename, text, is_pdf=False):
     """Generate a link to download content as a file"""
-    b64 = base64.b64encode(content.encode()).decode()
-    href = f'<a href="data:file/txt;base64,{b64}" download="{filename}">{text}</a>'
+    if is_pdf:
+        # For PDF content (bytes)
+        b64 = base64.b64encode(content).decode()
+        href = f'<a href="data:application/pdf;base64,{b64}" download="{filename}">{text}</a>'
+    else:
+        # For text content
+        b64 = base64.b64encode(content.encode()).decode()
+        href = f'<a href="data:file/txt;base64,{b64}" download="{filename}">{text}</a>'
     return href
 
 # Function to delete a product
@@ -224,6 +636,8 @@ if tab_selection == "Quản lý Đơn hàng":
         with col1:
             customer_name = st.text_input("Tên Khách hàng")
             customer_phone = st.text_input("Số điện thoại")
+        with col2:
+            customer_address = st.text_area("Địa chỉ giao hàng", height=100)
         
         # Product selection
         st.subheader("Lựa chọn Sản phẩm")
@@ -243,10 +657,25 @@ if tab_selection == "Quản lý Đơn hàng":
                     quantities.append(quantity)
                 st.write("---")
         
-        # Calculate total
-        total_amount = sum(p['price'] * q for p, q in zip(selected_products, quantities))
+        # Calculate total product amount
+        total_product_amount = sum(p['price'] * q for p, q in zip(selected_products, quantities))
         
-        st.subheader(f"Tổng tiền: {total_amount:,.0f} VND")
+        # Shipping fee input
+        st.subheader("Phí vận chuyển")
+        shipping_fee = st.number_input("Phí vận chuyển (VND)", min_value=0, value=0, step=1000)
+        
+        # Calculate grand total
+        total_amount = total_product_amount + shipping_fee
+        
+        # Display totals
+        st.subheader("Tổng tiền")
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.write(f"**Tổng sản phẩm:** {total_product_amount:,.0f} VND")
+        with col2:
+            st.write(f"**Phí vận chuyển:** {shipping_fee:,.0f} VND")
+        with col3:
+            st.write(f"**Tổng cộng:** {total_amount:,.0f} VND")
         
         if st.button("Tạo Đơn hàng", key="create_order"):
             if not customer_name:
@@ -263,7 +692,9 @@ if tab_selection == "Quản lý Đơn hàng":
                     'date': [datetime.date.today().strftime("%Y-%m-%d")],
                     'customer_name': [customer_name],
                     'customer_phone': [customer_phone],
-                    'total_amount': [total_amount],
+                    'customer_address': [customer_address],
+                    'total_amount': [total_product_amount],  # Store just product amount
+                    'shipping_fee': [shipping_fee],  # Add shipping fee
                     'status': ['Hoàn thành']
                 })
                 
@@ -297,7 +728,7 @@ if tab_selection == "Quản lý Đơn hàng":
                     'order_id': [order_id],
                     'date': [datetime.date.today().strftime("%Y-%m-%d")],
                     'customer_name': [customer_name],
-                    'total_amount': [total_amount],
+                    'total_amount': [total_amount],  # Use grand total (products + shipping)
                     'payment_method': ['Tiền mặt']  # Default payment method
                 })
                 
@@ -306,8 +737,15 @@ if tab_selection == "Quản lý Đơn hàng":
                 st.success(f"Đơn hàng {order_id} đã được tạo thành công!")
                 
                 # Generate invoice download link
-                invoice_content = generate_invoice_content(invoice_id, order_id)
-                st.markdown(download_link(invoice_content, f"Hoadon_{invoice_id}.txt", "Tải Hóa đơn"), unsafe_allow_html=True)
+                pdf_data = generate_invoice_content(invoice_id, order_id, as_pdf=True)
+                st.markdown(download_link(pdf_data, f"Hoadon_{invoice_id}.pdf", "Tải Hóa đơn (PDF)", is_pdf=True), unsafe_allow_html=True)
+
+                 # Save data after creating order
+                save_dataframe(st.session_state.orders, "orders.csv")
+                save_dataframe(st.session_state.order_items, "order_items.csv")
+                save_dataframe(st.session_state.invoices, "invoices.csv")
+                save_dataframe(st.session_state.materials, "materials.csv")
+                save_dataframe(st.session_state.income, "income.csv")
     
     with order_tab2:
         st.subheader("Lịch sử Đơn hàng")
@@ -382,11 +820,17 @@ elif tab_selection == "Theo dõi Doanh thu":
             material_costs = 0
             if not material_costs_df.empty:
                 month_costs = material_costs_df[(material_costs_df['date_obj'] >= month_start) & 
-                                              (material_costs_df['date_obj'] <= month_end)]
+                                            (material_costs_df['date_obj'] <= month_end)]
                 material_costs = month_costs['total_cost'].sum() if not month_costs.empty else 0
             
+            # Calculate other costs (includes marketing, production, and other fees)
+            other_costs = material_costs  # All external costs (non-COGS) go here
+            
+            # Recalculate the total cost as Chi phí hàng hóa + Chi phí khác
+            total_cost = cost_of_goods + other_costs
+            
             # Calculate net profit
-            net_profit = sales_profit - material_costs
+            net_profit = total_sales - total_cost
             
             # Calculate profit margin
             profit_margin = (net_profit / total_sales * 100) if total_sales > 0 else 0
@@ -396,8 +840,8 @@ elif tab_selection == "Theo dõi Doanh thu":
                 'Tháng': month_name,
                 'Doanh thu': total_sales,
                 'Chi phí Hàng bán': cost_of_goods,
-                'Chi phí Nguyên liệu': material_costs,
-                'Tổng Chi phí': cost_of_goods + material_costs,
+                'Chi phí Khác': other_costs,
+                'Tổng Chi phí': total_cost,
                 'Lợi nhuận': net_profit,
                 'Tỷ suất': profit_margin
             })
@@ -506,10 +950,12 @@ elif tab_selection == "Theo dõi Doanh thu":
                     st.subheader("Chi phí & Lợi nhuận Ròng")
                     col1, col2, col3 = st.columns(3)
                     with col1:
-                        st.metric("Chi phí Nguyên liệu", f"{material_costs_in_period:,.0f} VND")
+                        st.metric("Chi phí Khác", f"{material_costs_in_period:,.0f} VND")
                     with col2:
-                        st.metric("Tổng Chi phí", f"{(cost_of_goods + material_costs_in_period):,.0f} VND")
+                        total_costs = cost_of_goods + material_costs_in_period
+                        st.metric("Tổng Chi phí", f"{total_costs:,.0f} VND")
                     with col3:
+                        net_profit = total_sales - total_costs
                         st.metric("Lợi nhuận Ròng", f"{net_profit:,.0f} VND")
                     
                     # Display profit margins
@@ -1046,6 +1492,8 @@ elif tab_selection == "Kho Nguyên liệu":
                             st.warning(f"Nguyên liệu {selected_material_id} đã được cập nhật nhưng sắp hết hàng!")
                         else:
                             st.success(f"Nguyên liệu {selected_material_id} đã được cập nhật thành công!")
+                        #Save materials data
+                        save_dataframe(st.session_state.materials, "materials.csv")        
         else:
             st.info("Chưa có dữ liệu nguyên liệu để cập nhật.")
 
@@ -1176,6 +1624,9 @@ elif tab_selection == "Kho Nguyên liệu":
                                 st.success(f"Đã nhập {import_quantity} {current_unit} nguyên liệu {selected_material_id} thành công!")
                                 st.write(f"Số lượng mới: {new_quantity} {current_unit}")
                                 st.write(f"Giá đơn vị mới (trung bình): {new_price_per_unit:,.0f} VND/{current_unit}")
+                                # Save materials and material costs data
+                                save_dataframe(st.session_state.materials, "materials.csv")
+                                save_dataframe(st.session_state.material_costs, "material_costs.csv")
             else:
                 st.info("Chưa có dữ liệu nguyên liệu. Vui lòng thêm nguyên liệu mới.")
                 
@@ -1276,6 +1727,10 @@ elif tab_selection == "Kho Nguyên liệu":
                     st.write(f"Đã nhập: {new_material_quantity} {unit_display}")
                     st.write(f"Giá đơn vị: {price_per_unit:,.0f} VND/{unit_display}")
 
+                    # Save materials and material costs data
+                    save_dataframe(st.session_state.materials, "materials.csv")
+                    save_dataframe(st.session_state.material_costs, "material_costs.csv")
+
 # Product Management Tab
 elif tab_selection == "Quản lý Sản phẩm":
     st.header("Quản lý Sản phẩm")
@@ -1372,27 +1827,39 @@ elif tab_selection == "Quản lý Sản phẩm":
                     if st.button("Cập nhật Giá"):
                         st.session_state.products.at[product_idx, 'price'] = new_price
                         st.success(f"Giá sản phẩm {selected_product_id} đã được cập nhật thành công!")
+                        
+                        # Save products data
+                        save_dataframe(st.session_state.products, "products.csv")
         else:
             st.info("Chưa có dữ liệu sản phẩm để cập nhật.")
-    
+
     with price_tab3:
         st.subheader("Thêm Sản phẩm Mới")
         
         # New product form
         new_product_id = st.text_input("Mã Sản phẩm (vd: P005)", key="new_product_id")
         new_product_name = st.text_input("Tên Sản phẩm", key="new_product_name")
-        new_product_price = st.number_input("Giá", min_value=1000, value=23000, step=1000, key="new_product_price")
         new_product_category = st.text_input("Phân loại", key="new_product_category")
+        
+        # Add direct production fee and other costs inputs
+        col1, col2 = st.columns(2)
+        with col1:
+            production_fee = st.number_input("Chi phí sản xuất (VND)", min_value=0, value=10000, step=1000, key="production_fee")
+            st.caption("Chi phí liên quan đến quá trình sản xuất")
+        with col2:
+            other_fee = st.number_input("Chi phí khác (VND)", min_value=0, value=5000, step=1000, key="other_fee")
+            st.caption("Các chi phí phát sinh khác")
         
         st.write("### Công thức")
         st.write("Chọn nguyên liệu và số lượng cần thiết cho sản phẩm này:")
         
         # Materials for recipe
         recipe_materials = []
+        total_material_cost = 0
         
         if not st.session_state.materials.empty:
             for _, material in st.session_state.materials.iterrows():
-                col1, col2 = st.columns([3, 1])
+                col1, col2, col3 = st.columns([3, 1, 2])
                 with col1:
                     st.write(f"{material['name']} ({material['unit']})")
                 with col2:
@@ -1403,6 +1870,13 @@ elif tab_selection == "Quản lý Sản phẩm":
                         step=0.1,
                         key=f"new_recipe_{material['material_id']}"
                     )
+                with col3:
+                    if quantity > 0:
+                        material_cost = quantity * material['price_per_unit']
+                        st.write(f"{material_cost:,.0f} VND")
+                        total_material_cost += material_cost
+                    else:
+                        st.write("0 VND")
                 
                 if quantity > 0:
                     recipe_materials.append({
@@ -1411,6 +1885,41 @@ elif tab_selection == "Quản lý Sản phẩm":
                     })
         else:
             st.warning("Không có nguyên liệu nào trong kho. Vui lòng thêm nguyên liệu trước.")
+        
+        # Calculate total cost and suggested price
+        total_cost = total_material_cost + production_fee + other_fee
+        markup_percentage = 66.66
+        markup_multiplier = 1 + (markup_percentage / 100)
+        suggested_price = total_cost * markup_multiplier
+        
+        # Display cost breakdown and suggested price
+        st.write("### Chi phí và Giá đề xuất")
+        col1, col2 = st.columns(2)
+        with col1:
+            st.write(f"Chi phí nguyên liệu: **{total_material_cost:,.0f} VND**")
+            st.write(f"Chi phí sản xuất: **{production_fee:,.0f} VND**")
+            st.write(f"Chi phí khác: **{other_fee:,.0f} VND**")
+            st.write(f"**Tổng chi phí: {total_cost:,.0f} VND**")
+        with col2:
+            st.write(f"Tỷ lệ lợi nhuận: **{markup_percentage:.2f}%**")
+            st.write(f"Giá đề xuất: **{suggested_price:,.0f} VND**")
+        
+        # Allow user to use suggested price or enter a custom price
+        use_suggested_price = st.checkbox("Sử dụng giá đề xuất", value=True, key="use_suggested_price")
+        
+        if use_suggested_price:
+            new_product_price = int(suggested_price)
+            st.write(f"Giá sản phẩm: **{new_product_price:,.0f} VND**")
+        else:
+            new_product_price = st.number_input("Giá tùy chỉnh", min_value=1000, value=int(suggested_price), step=1000, key="new_product_price")
+        
+        # Add product cost info for future reference
+        product_cost_info = {
+            'material_cost': total_material_cost,
+            'production_fee': production_fee,
+            'other_fee': other_fee,
+            'total_cost': total_cost
+        }
         
         if st.button("Thêm Sản phẩm"):
             if not new_product_id or not new_product_name or not new_product_category:
@@ -1442,7 +1951,29 @@ elif tab_selection == "Quản lý Sản phẩm":
                 new_recipes = pd.DataFrame(recipe_rows)
                 st.session_state.recipes = pd.concat([st.session_state.recipes, new_recipes], ignore_index=True)
                 
+                # Store cost info (optional, if you want to track this information)
+                if 'product_costs' not in st.session_state:
+                    st.session_state.product_costs = pd.DataFrame(columns=[
+                        'product_id', 'material_cost', 'production_fee', 'other_fee', 'total_cost', 'price'
+                    ])
+                
+                new_cost_info = pd.DataFrame({
+                    'product_id': [new_product_id],
+                    'material_cost': [total_material_cost],
+                    'production_fee': [production_fee],
+                    'other_fee': [other_fee],
+                    'total_cost': [total_cost],
+                    'price': [new_product_price]
+                })
+                
+                st.session_state.product_costs = pd.concat([st.session_state.product_costs, new_cost_info], ignore_index=True)
+                
+                # Save products, recipes, and product costs data
                 st.success(f"Sản phẩm {new_product_id} đã được thêm thành công!")
+                save_dataframe(st.session_state.products, "products.csv")
+                save_dataframe(st.session_state.recipes, "recipes.csv")
+                if 'product_costs' in st.session_state:
+                    save_dataframe(st.session_state.product_costs, "product_costs.csv")
     
     # Add new Delete Products tab
     with price_tab4:
@@ -1491,6 +2022,11 @@ elif tab_selection == "Quản lý Sản phẩm":
                         st.session_state.recipes = st.session_state.recipes[st.session_state.recipes['product_id'] != selected_product_id]
                         
                         st.success(f"Sản phẩm {selected_product_id} đã được xóa thành công!")
+        
+                        # Save products and recipes data
+                        save_dataframe(st.session_state.products, "products.csv")
+                        save_dataframe(st.session_state.recipes, "recipes.csv")
+        
         else:
             st.info("Chưa có dữ liệu sản phẩm để xóa.")
 
@@ -1677,6 +2213,8 @@ elif tab_selection == "Quản lý Hóa đơn":
                             st.session_state.invoice_status.at[status_idx, 'notes'] = new_notes
                             
                             st.success(f"Trạng thái hóa đơn {selected_invoice_id} đã được cập nhật!")
+                            # Save invoice status data
+                            save_dataframe(st.session_state.invoice_status, "invoice_status.csv")
                             st.rerun()  # Changed from experimental_rerun to rerun
                         
                         # Order items
@@ -1715,8 +2253,8 @@ elif tab_selection == "Quản lý Hóa đơn":
                         # Invoice download link
                         st.subheader("Tải xuống Hóa đơn")
                         try:
-                            invoice_content = generate_invoice_content(selected_invoice_id, order_id)
-                            st.markdown(download_link(invoice_content, f"Hoadon_{selected_invoice_id}.txt", "Tải Hóa đơn"), unsafe_allow_html=True)
+                            pdf_data = generate_invoice_content(selected_invoice_id, order_id, as_pdf=True)
+                            st.markdown(download_link(pdf_data, f"Hoadon_{selected_invoice_id}.pdf", "Tải Hóa đơn (PDF)", is_pdf=True), unsafe_allow_html=True)
                         except Exception as e:
                             st.error(f"Lỗi khi tạo hóa đơn: {str(e)}")
             else:
@@ -1774,6 +2312,12 @@ elif tab_selection == "Quản lý Hóa đơn":
                 st.session_state.invoice_status = pd.concat([st.session_state.invoice_status, demo_status], ignore_index=True)
                 
                 st.success("Đã tạo hóa đơn mẫu thành công!")
+                # Save orders, order items, invoices, and invoice status data
+                save_dataframe(st.session_state.orders, "orders.csv")
+                save_dataframe(st.session_state.order_items, "order_items.csv")
+                save_dataframe(st.session_state.invoices, "invoices.csv")
+                save_dataframe(st.session_state.invoice_status, "invoice_status.csv")
+
                 st.rerun()  # Changed from experimental_rerun to rerun
     
     with invoice_tab2:
@@ -1841,6 +2385,9 @@ elif tab_selection == "Quản lý Hóa đơn":
                                         st.session_state.invoice_status.at[status_idx, 'notes'] = completion_note
                             
                             st.success(f"Đã cập nhật {len(selected_to_complete)} hóa đơn!")
+                            # Save invoice status data
+                            save_dataframe(st.session_state.invoice_status, "invoice_status.csv")
+                            
                             st.rerun()  # Changed from experimental_rerun to rerun
                 else:
                     st.info("Không có hóa đơn nào chưa hoàn thành.")

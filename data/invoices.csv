@@ -1,0 +1,2 @@
+invoice_id,order_id,date,customer_name,total_amount,payment_method
+INV-656E0689,ORD-8B4B7579,2025-03-30,qưe,575000,Tiền mặt

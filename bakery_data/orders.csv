@@ -1,0 +1,2 @@
+order_id,date,customer_name,customer_phone,total_amount,status,customer_address,shipping_fee
+ORD-7F4BDA5D,2025-03-30,123,123,575000,Hoàn thành,123,0.0
