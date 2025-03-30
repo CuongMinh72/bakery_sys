@@ -416,7 +416,7 @@ def update_income(order_id):
 
 def generate_invoice_content(invoice_id, order_id, as_pdf=False):
     """Generate invoice content either as text or PDF to match the simplified receipt format
-    with all font sizes and spacings doubled for better readability"""
+    with doubled font sizes for better readability"""
     order_data = st.session_state.orders[st.session_state.orders['order_id'] == order_id].iloc[0]
     order_items = st.session_state.order_items[st.session_state.order_items['order_id'] == order_id]
     
@@ -483,13 +483,12 @@ def generate_invoice_content(invoice_id, order_id, as_pdf=False):
         
         return invoice_content
     else:
-        # PDF version with all font sizes and spacings doubled
+        # PDF version with all font sizes doubled
         buffer = io.BytesIO()
-        # Use A3 paper size instead of A4 for larger format
-        width, height = landscape(A3)  # Using landscape A3 for much larger format
+        width, height = A4
         
         # Create the PDF
-        c = canvas.Canvas(buffer, pagesize=landscape(A3))
+        c = canvas.Canvas(buffer, pagesize=A4)
         
         # Set up font for Vietnamese
         font_name = setup_vietnamese_font()
@@ -506,123 +505,123 @@ def generate_invoice_content(invoice_id, order_id, as_pdf=False):
             else:
                 c.setFont(f"Helvetica{'-Bold' if font_style == 'bold' else ''}", doubled_size)
         
-        # Double all cm measurements for spacing
         # Initialize y position - start higher on the page
-        y_position = height - 4*cm
+        y_position = height - 2*cm
         
         # Draw store name (centered)
-        set_font('bold', 34)  # Original size was 34
+        set_font('bold', 34)  # Original size was 34, now doubled
         c.drawCentredString(width/2, y_position, store_name)
-        y_position -= 2.4*cm  # Original was 1.2*cm
+        y_position -= 1.2*cm
         
         # Draw store address (centered)
-        set_font('normal', 14)  # Original size was 14
+        set_font('normal', 14)  # Original size was 14, now doubled
         c.drawCentredString(width/2, y_position, store_address)
-        y_position -= 1.4*cm  # Original was 0.7*cm
+        y_position -= 0.7*cm
         c.drawCentredString(width/2, y_position, store_phone)
-        y_position -= 2*cm  # Original was 1*cm
+        y_position -= 1*cm
         
-        # Draw separator line - make it wider and thicker
+        # Draw separator line - make it twice as thick
         c.setLineWidth(2)  # Original was 1
-        c.line(5*cm, y_position, 38*cm, y_position)  # Original was 2.5*cm to 19*cm
-        y_position -= 2*cm  # Original was 1*cm
+        c.line(2.5*cm, y_position, 19*cm, y_position)
+        y_position -= 1*cm
         
         # Draw bill number
-        set_font('bold', 18)  # Original was 18
-        c.drawString(5*cm, y_position, f"Bill No. :")
-        c.drawString(20*cm, y_position, f"#{order_id}#")  # Original was 10*cm
-        y_position -= 2*cm  # Original was 1*cm
+        set_font('bold', 18)  # Original size was 18, now doubled
+        c.drawString(2.5*cm, y_position, f"Bill No. :")
+        c.drawString(10*cm, y_position, f"#{order_id}#")
+        y_position -= 1*cm
         
         # Draw customer information
-        set_font('normal', 18)  # Original was 18
-        c.drawString(5*cm, y_position, f"Khách hàng: {customer_name}")
-        y_position -= 1.4*cm  # Original was 0.7*cm
+        set_font('normal', 18)  # Original size was 18, now doubled
+        c.drawString(2.5*cm, y_position, f"Khách hàng: {customer_name}")
+        y_position -= 0.7*cm
         
         # Phone
-        set_font('normal', 18)
-        c.drawString(5*cm, y_position, f"Số điện thoại: {customer_phone}")
-        y_position -= 1.4*cm  # Original was 0.7*cm
+        set_font('normal', 18)  # Original size was 18, now doubled
+        c.drawString(2.5*cm, y_position, f"Số điện thoại: {customer_phone}")
+        y_position -= 0.7*cm
         
         # Address
-        set_font('normal', 18)
-        c.drawString(5*cm, y_position, f"Địa chỉ: {customer_address}")
-        y_position -= 2*cm  # Original was 1*cm
+        set_font('normal', 18)  # Original size was 18, now doubled
+        c.drawString(2.5*cm, y_position, f"Địa chỉ: {customer_address}")
+        y_position -= 1*cm
         
         # Draw date
-        set_font('normal', 18)
-        c.drawString(5*cm, y_position, f"Ngày: {order_data['date']}")
-        y_position -= 2*cm  # Original was 1*cm
+        set_font('normal', 18)  # Original size was 18, now doubled
+        c.drawString(2.5*cm, y_position, f"Ngày: {order_data['date']}")
+        y_position -= 1*cm
         
-        # Draw separator line
-        c.setLineWidth(2)
-        c.line(5*cm, y_position, 38*cm, y_position)
-        y_position -= 2*cm  # Original was 1*cm
+        # Draw separator line - make it twice as thick
+        c.setLineWidth(2)  # Original was 1
+        c.line(2.5*cm, y_position, 19*cm, y_position)
+        y_position -= 1*cm
         
         # Draw column headers
-        set_font('bold', 18)
-        c.drawString(5*cm, y_position, "Item x Qty")
-        c.drawRightString(38*cm, y_position, "Price")
-        y_position -= 1.6*cm  # Original was 0.8*cm
+        set_font('bold', 18)  # Original size was 18, now doubled
+        c.drawString(2.5*cm, y_position, "Item x Qty")
+        c.drawRightString(19*cm, y_position, "Price")
+        y_position -= 0.8*cm
         
         # Draw items
         for _, item in order_items.iterrows():
-            set_font('normal', 18)
-            c.drawString(5*cm, y_position, f"{item['name']} x {item['quantity']}")
-            c.drawRightString(38*cm, y_position, f"{item['subtotal']:,.0f}")
-            y_position -= 1.6*cm  # Original was 0.8*cm
+            set_font('normal', 18)  # Original size was 18, now doubled
+            c.drawString(2.5*cm, y_position, f"{item['name']} x {item['quantity']}")
+            c.drawRightString(19*cm, y_position, f"{item['subtotal']:,.0f}")
+            y_position -= 0.8*cm
             
-            # Check if we need to start a new page - adjusted for larger page size
-            if y_position < 10*cm:  # Original was 5*cm
+            # Check if we need to start a new page
+            if y_position < 5*cm:
                 c.showPage()
-                y_position = height - 6*cm  # Original was 3*cm
+                y_position = height - 3*cm
         
-        # Draw separator line
-        c.setLineWidth(2)
-        c.line(5*cm, y_position, 38*cm, y_position)
-        y_position -= 2*cm  # Original was 1*cm
+        # Draw separator line - make it twice as thick
+        c.setLineWidth(2)  # Original was 1
+        c.line(2.5*cm, y_position, 19*cm, y_position)
+        y_position -= 1*cm
         
         # Draw items/qty count
-        set_font('normal', 18)
-        c.drawString(5*cm, y_position, "Items/Qty")
-        c.drawRightString(38*cm, y_position, f"{len(order_items)}/{order_items['quantity'].sum()}")
-        y_position -= 2*cm  # Original was 1*cm
+        set_font('normal', 18)  # Original size was 18, now doubled
+        c.drawString(2.5*cm, y_position, "Items/Qty")
+        c.drawRightString(19*cm, y_position, f"{len(order_items)}/{order_items['quantity'].sum()}")
+        y_position -= 1*cm
         
         # Draw total
-        set_font('bold', 22)
-        c.drawString(5*cm, y_position, "Total")
-        c.drawRightString(38*cm, y_position, f"{total_amount:,.0f}")
-        y_position -= 2*cm  # Original was 1*cm
+        set_font('bold', 22)  # Original size was 22, now doubled
+        c.drawString(2.5*cm, y_position, "Total")
+        c.drawRightString(19*cm, y_position, f"{total_amount:,.0f}")
+        y_position -= 1*cm
         
-        # Draw separator line
-        c.setLineWidth(2)
-        c.line(5*cm, y_position, 38*cm, y_position)
-        y_position -= 2*cm  # Original was 1*cm
+        # Draw separator line - make it twice as thick
+        c.setLineWidth(2)  # Original was 1
+        c.line(2.5*cm, y_position, 19*cm, y_position)
+        y_position -= 1*cm
         
         # Draw payment method
-        set_font('normal', 18)
-        c.drawString(5*cm, y_position, "Payment Method")
-        c.drawRightString(38*cm, y_position, "Card")
-        y_position -= 5*cm  # Original was 2.5*cm
+        set_font('normal', 18)  # Original size was 18, now doubled
+        c.drawString(2.5*cm, y_position, "Payment Method")
+        c.drawRightString(19*cm, y_position, "Card")
+        y_position -= 2.5*cm
         
         # Thank you message
-        set_font('normal', 18)
+        set_font('normal', 18)  # Original size was 18, now doubled
         c.drawCentredString(width/2, y_position, '" XIN CẢM ƠN QUY KHÁCH."')
         
         # Add QR code if available - doubled in size
         try:
-            qr_y_position = 10*cm  # Original was 5*cm - Lower position for QR code
+            qr_y_position = 5*cm  # Lower position for QR code
             qr_image_path = "C:\\Users\\Computer\\PycharmProjects\\bakery_sys\\assets\\qr_cua_xuan.png"
-            c.drawImage(qr_image_path, 5*cm, qr_y_position, width=6*cm, height=6*cm)  # Original was 3*cm x 3*cm
+            # Double the QR code size from 3*cm to 6*cm
+            c.drawImage(qr_image_path, 2.5*cm, qr_y_position, width=6*cm, height=6*cm)
             
-            set_font('bold', 10)
-            c.drawCentredString(8*cm, qr_y_position - 1*cm, "Quét để thanh toán")  # Original was 4*cm and 0.5*cm
+            set_font('bold', 10)  # Original size was 10, now doubled
+            c.drawCentredString(5.5*cm, qr_y_position - 0.5*cm, "Quét để thanh toán")
             
-            set_font('normal', 9)
+            set_font('normal', 9)  # Original size was 9, now doubled
             # Account information
             account_number = "19037177788018"
             account_name = "NGUYEN THU XUAN"
-            c.drawCentredString(8*cm, qr_y_position - 2*cm, f"STK: {account_number}")  # Original was 4*cm and 1*cm
-            c.drawCentredString(8*cm, qr_y_position - 3*cm, f"Tên: {account_name}")  # Original was 4*cm and 1.5*cm
+            c.drawCentredString(5.5*cm, qr_y_position - 1*cm, f"STK: {account_number}")
+            c.drawCentredString(5.5*cm, qr_y_position - 1.5*cm, f"Tên: {account_name}")
         except Exception:
             # If QR code insertion fails, we don't add any note
             pass
