@@ -414,18 +414,6 @@ def update_income(order_id):
         
         st.session_state.income = pd.concat([st.session_state.income, new_row], ignore_index=True)
 
-from datetime import datetime
-import io
-from reportlab.lib.pagesizes import A4
-from reportlab.lib.units import cm
-from reportlab.pdfgen import canvas
-
-def setup_vietnamese_font():
-    """Setup font that supports Vietnamese characters"""
-    # In a real implementation, you would register and return a Vietnamese-compatible font
-    # For this example we'll return 'Roboto' which is commonly used
-    return 'Roboto'
-
 def generate_invoice_content(invoice_id, order_id, as_pdf=False):
     """Generate invoice content either as text or PDF to match the simplified receipt format"""
     order_data = st.session_state.orders[st.session_state.orders['order_id'] == order_id].iloc[0]
