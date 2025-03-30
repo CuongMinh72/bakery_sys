@@ -270,13 +270,12 @@ if 'invoice_status' not in st.session_state:
 # Function to ensure we have Unicode support for Vietnamese
 def setup_vietnamese_font():
     try:
-        # Try to use Roboto fonts from specified path
-        roboto_base_dir = "C:\\Users\\Computer\\PycharmProjects\\bakery_sys\\fonts\\static"
+        # Use relative paths for Streamlit Cloud
+        roboto_base_dir = "fonts/static"
         
-        # Check if we can register both Regular and Bold variants
         try:
-            regular_path = f"{roboto_base_dir}\\Roboto-Regular.ttf"
-            bold_path = f"{roboto_base_dir}\\Roboto-Bold.ttf"
+            regular_path = f"{roboto_base_dir}/Roboto-Regular.ttf"
+            bold_path = f"{roboto_base_dir}/Roboto-Bold.ttf"
             
             # Register the regular font
             pdfmetrics.registerFont(TTFont('Roboto', regular_path))
@@ -286,11 +285,13 @@ def setup_vietnamese_font():
             
             return 'Roboto'
         except Exception as e:
-            # Fall back to Helvetica if there's any issue with Roboto
+            print(f"Font error: {e}")
+            # Fall back to Helvetica if there's any issue
             return 'Helvetica'
             
     except Exception as e:
-        # Fall back to Helvetica if there's any issue
+        print(f"Font setup error: {e}")
+        # Fall back to Helvetica
         return 'Helvetica'
 
 def save_all_data():
@@ -605,7 +606,7 @@ def generate_invoice_content(invoice_id, order_id, as_pdf=False):
         
         try:
             # Path to your static QR code image - replace with the actual path to your QR code image
-            qr_image_path = "C:\\Users\\Computer\\PycharmProjects\\bakery_sys\\qr_cua_xuan.png"
+            qr_image_path = "C:\\Users\\Computer\\PycharmProjects\\bakery_sys\\assets\\qr_cua_xuan.png"
             
             # Place QR code image on PDF
             c.drawImage(qr_image_path, 2*cm, qr_y_position, width=4*cm, height=4*cm)
