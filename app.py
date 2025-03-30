@@ -20,6 +20,7 @@ from reportlab.lib.utils import ImageReader
 import base64
 import warnings
 import json
+from datetime import date
 
 # Suppress the ScriptRunContext warnings
 warnings.filterwarnings('ignore', message='.*missing ScriptRunContext.*')
@@ -414,7 +415,7 @@ def update_income(order_id):
         st.session_state.income = pd.concat([st.session_state.income, new_row], ignore_index=True)
 
 def generate_invoice_content(invoice_id, order_id, as_pdf=False):
-    """Generate receipt-style invoice content either as text or PDF"""
+    """Generate invoice content either as text or PDF to match the simplified receipt format"""
     order_data = st.session_state.orders[st.session_state.orders['order_id'] == order_id].iloc[0]
     order_items = st.session_state.order_items[st.session_state.order_items['order_id'] == order_id]
     
@@ -425,324 +426,257 @@ def generate_invoice_content(invoice_id, order_id, as_pdf=False):
         how='left'
     )
     
-    # Get shipping fee and customer address from order data
+    # Get shipping fee and customer address from order data (will be 0 if not specified)
     shipping_fee = order_data.get('shipping_fee', 0)
     customer_address = order_data.get('customer_address', '')
+    customer_name = order_data['customer_name']
+    customer_phone = order_data['customer_phone']
     
     # Calculate total amount
     total_amount = order_data['total_amount'] + shipping_fee
     
-    # Store information
+    # Store information from the original code
     store_name = "THUXUAN CAKE"
-    store_address = "Số 10 ngõ 298 Đê La Thành, Đống Đa, Hà Nội"
+    store_address = "Đ/C: Số 10 ngõ 298 Đê La Thành, Đống Đa, Hà Nội"
     store_phone = "ĐT: 0988 159 268"
     
     if not as_pdf:
-        # Text version (plain text receipt style)
+        # Text version
         invoice_content = f"""
-        {store_name}
-        {store_address}
-        {store_phone}
-        -----------------------------------
+                                {store_name}
+                               {store_address}
+                               {store_phone}
         
-        Hóa đơn #: {invoice_id}
-        Ngày: {order_data['date']}
-        Giờ: {datetime.datetime.now().strftime('%H:%M')}
-        -----------------------------------
+        -----------------------------------------
         
-        Mặt hàng x SL{' '*15}Đơn giá
+        Bill No.: #{order_id}#
+        
+        Customer: {customer_name}
+        Phone: {customer_phone}
+        Address: {customer_address}
+        
+        #{order_data['date']}#
+        
+        -----------------------------------------
+        
+        Item x Qty                            Price
         """
         
         for _, item in order_items.iterrows():
-            # Format item line with right-aligned price
-            name_qty = f"{item['name']} x {item['quantity']}"
-            price = f"{item['price']:,.0f}"
-            spaces = ' ' * max(1, 30 - len(name_qty))
-            invoice_content += f"\n{name_qty}{spaces}{price}"
+            invoice_content += f"\n{item['name']} x {item['quantity']}                           {item['subtotal']:,.0f}"
         
         invoice_content += f"""
-        -----------------------------------
-        Tổng sản phẩm:{' '*15}{order_data['total_amount']:,.0f}
-        Phí vận chuyển:{' '*14}{shipping_fee:,.0f}
-        -----------------------------------
-        TỔNG CỘNG:{' '*18}{total_amount:,.0f}
+        -----------------------------------------
         
-        Phương thức thanh toán: Tiền mặt
+        Items/Qty                              {len(order_items)}/{order_items['quantity'].sum()}
         
-        Cảm ơn quý khách!
-        Hẹn gặp lại quý khách.
+        Total                               {total_amount:,.0f}
+        
+        -----------------------------------------
+        
+        Payment Method                        Card
+        
+        
+        "" XIN CẢM ƠN QUY KHÁCH. ""
         """
         
         return invoice_content
-    
     else:
-        # PDF version (thermal receipt style)
+        # PDF version with numbered lines and simplified format
         buffer = io.BytesIO()
+        width, height = A4
         
-        # Create a narrower page size like a receipt
-        receipt_width = 8*cm  # Width similar to thermal receipt
-        receipt_height = 20*cm  # Height will be determined dynamically
-        
-        # Create the PDF with initial size - we'll adjust later
-        c = canvas.Canvas(buffer, pagesize=(receipt_width, receipt_height))
+        # Create the PDF
+        c = canvas.Canvas(buffer, pagesize=A4)
         
         # Set up font for Vietnamese
         font_name = setup_vietnamese_font()
         
-        # Start position for drawing
-        y_position = receipt_height - 1*cm
-        
-        # Store header
-        if font_name == 'Roboto':
-            try:
-                c.setFont("Roboto-Bold", 12)
-            except:
-                c.setFont("Helvetica-Bold", 12)
-        else:
-            c.setFont("Helvetica-Bold", 12)
-        
-        # Center the header text
-        c.drawCentredString(receipt_width/2, y_position, store_name)
-        y_position -= 0.5*cm
-        
-        # Store address and phone - smaller font
-        if font_name == 'Roboto':
-            try:
-                c.setFont("Roboto", 8)
-            except:
-                c.setFont("Helvetica", 8)
-        else:
-            c.setFont("Helvetica", 8)
-        
-        # Wrap text for address
-        address_text = c.beginText(0.5*cm, y_position)
-        address_text.setFont(font_name if font_name == 'Roboto' else "Helvetica", 8)
-        wrapped_address = textwrap.fill(store_address, width=40)
-        for line in wrapped_address.split('\n'):
-            address_text.textLine(line)
-        c.drawText(address_text)
-        
-        # Adjust y position based on number of address lines
-        y_position -= (0.3*cm * len(wrapped_address.split('\n')))
-        
-        # Phone
-        c.drawCentredString(receipt_width/2, y_position, store_phone)
-        y_position -= 0.5*cm
-        
-        # Draw dashed line
-        c.setDash(3, 3)  # 3 points on, 3 points off
-        c.line(0.5*cm, y_position, receipt_width-0.5*cm, y_position)
-        c.setDash(1, 0)  # Reset dash pattern
-        y_position -= 0.7*cm
-        
-        # Invoice/Order details
-        if font_name == 'Roboto':
-            try:
-                c.setFont("Roboto-Bold", 10)
-            except:
-                c.setFont("Helvetica-Bold", 10)
-        else:
-            c.setFont("Helvetica-Bold", 10)
-        
-        c.drawString(0.5*cm, y_position, f"Hóa đơn #: {invoice_id}")
-        y_position -= 0.4*cm
-        
-        # Date and time
-        current_time = datetime.datetime.now().strftime('%H:%M')
-        if font_name == 'Roboto':
-            try:
-                c.setFont("Roboto", 9)
-            except:
-                c.setFont("Helvetica", 9)
-        else:
-            c.setFont("Helvetica", 9)
-        
-        c.drawString(0.5*cm, y_position, f"Ngày: {order_data['date']} {current_time}")
-        y_position -= 0.7*cm
-        
-        # Draw dashed line
-        c.setDash(3, 3)
-        c.line(0.5*cm, y_position, receipt_width-0.5*cm, y_position)
-        c.setDash(1, 0)
-        y_position -= 0.7*cm
-        
-        # Column headers for items
-        if font_name == 'Roboto':
-            try:
-                c.setFont("Roboto-Bold", 9)
-            except:
-                c.setFont("Helvetica-Bold", 9)
-        else:
-            c.setFont("Helvetica-Bold", 9)
-        
-        c.drawString(0.5*cm, y_position, "Mặt hàng x SL")
-        c.drawRightString(receipt_width-0.5*cm, y_position, "Đơn giá")
-        y_position -= 0.4*cm
-        
-        # Items
-        if font_name == 'Roboto':
-            try:
-                c.setFont("Roboto", 9)
-            except:
-                c.setFont("Helvetica", 9)
-        else:
-            c.setFont("Helvetica", 9)
-        
-        # Keep track of required height
-        required_height = receipt_height  # Start with initial height
-        
-        for _, item in order_items.iterrows():
-            # Item description with quantity
-            item_text = f"{item['name']} x {item['quantity']}"
-            
-            # Check if text is too long for the receipt width
-            if c.stringWidth(item_text, font_name if font_name == 'Roboto' else "Helvetica", 9) > (receipt_width - 3*cm):
-                # Wrap the item text
-                text_obj = c.beginText(0.5*cm, y_position)
-                text_obj.setFont(font_name if font_name == 'Roboto' else "Helvetica", 9)
-                wrapped_text = textwrap.fill(item_text, width=25)
-                for line in wrapped_text.split('\n'):
-                    text_obj.textLine(line)
-                c.drawText(text_obj)
-                
-                # Price on the same line as the first line of the wrapped text
-                c.drawRightString(receipt_width-0.5*cm, y_position, f"{item['price']:,.0f}")
-                
-                # Adjust position based on wrapped text lines
-                y_position -= (0.3*cm * len(wrapped_text.split('\n')))
-            else:
-                # Single line for item and price
-                c.drawString(0.5*cm, y_position, item_text)
-                c.drawRightString(receipt_width-0.5*cm, y_position, f"{item['price']:,.0f}")
-                y_position -= 0.4*cm
-            
-            # Update required height if needed
-            required_height = max(required_height, receipt_height - y_position + 3*cm)
-        
-        # Draw dashed line
-        c.setDash(3, 3)
-        c.line(0.5*cm, y_position, receipt_width-0.5*cm, y_position)
-        c.setDash(1, 0)
-        y_position -= 0.7*cm
-        
-        # Totals
-        if font_name == 'Roboto':
-            try:
-                c.setFont("Roboto", 9)
-            except:
-                c.setFont("Helvetica", 9)
-        else:
-            c.setFont("Helvetica", 9)
-        
-        c.drawString(0.5*cm, y_position, "Tổng sản phẩm:")
-        c.drawRightString(receipt_width-0.5*cm, y_position, f"{order_data['total_amount']:,.0f}")
-        y_position -= 0.4*cm
-        
-        c.drawString(0.5*cm, y_position, "Phí vận chuyển:")
-        c.drawRightString(receipt_width-0.5*cm, y_position, f"{shipping_fee:,.0f}")
-        y_position -= 0.7*cm
-        
-        # Draw dashed line
-        c.setDash(3, 3)
-        c.line(0.5*cm, y_position, receipt_width-0.5*cm, y_position)
-        c.setDash(1, 0)
-        y_position -= 0.7*cm
-        
-        # Final total
-        if font_name == 'Roboto':
-            try:
-                c.setFont("Roboto-Bold", 10)
-            except:
-                c.setFont("Helvetica-Bold", 10)
-        else:
-            c.setFont("Helvetica-Bold", 10)
-        
-        c.drawString(0.5*cm, y_position, "TỔNG CỘNG:")
-        c.drawRightString(receipt_width-0.5*cm, y_position, f"{total_amount:,.0f}")
-        y_position -= 0.7*cm
-        
-        # Payment method
-        if font_name == 'Roboto':
-            try:
-                c.setFont("Roboto", 9)
-            except:
-                c.setFont("Helvetica", 9)
-        else:
-            c.setFont("Helvetica", 9)
-        
-        c.drawString(0.5*cm, y_position, "Phương thức thanh toán: Tiền mặt")
-        y_position -= 1*cm
-        
-        # QR Code (smaller size for receipt)
-        try:
-            qr_image_path = "C:\\Users\\Computer\\PycharmProjects\\bakery_sys\\assets\\qr_cua_xuan.png"
-            qr_size = 3*cm
-            c.drawImage(qr_image_path, (receipt_width-qr_size)/2, y_position-qr_size, width=qr_size, height=qr_size)
-            y_position -= (qr_size + 0.5*cm)
-            
-            # Account details below QR code
+        # Function to use proper font with fallback
+        def set_font(font_style, size):
             if font_name == 'Roboto':
                 try:
-                    c.setFont("Roboto", 8)
+                    c.setFont(f"Roboto{'-Bold' if font_style == 'bold' else ''}", size)
                 except:
-                    c.setFont("Helvetica", 8)
+                    c.setFont(f"Helvetica{'-Bold' if font_style == 'bold' else ''}", size)
             else:
-                c.setFont("Helvetica", 8)
-            
-            # Center account details
-            c.drawCentredString(receipt_width/2, y_position, "STK: 19037177788018")
-            y_position -= 0.3*cm
-            c.drawCentredString(receipt_width/2, y_position, "Tên: NGUYEN THU XUAN")
-            y_position -= 0.7*cm
-        except Exception as e:
-            # If QR code fails, just move on
-            pass
+                c.setFont(f"Helvetica{'-Bold' if font_style == 'bold' else ''}", size)
         
-        # Thank you note
-        if font_name == 'Roboto':
-            try:
-                c.setFont("Roboto-Bold", 9)
-            except:
-                c.setFont("Helvetica-Bold", 9)
-        else:
-            c.setFont("Helvetica-Bold", 9)
+        # Initialize y position
+        y_position = height - 2*cm
+        line_number = 1
         
-        c.drawCentredString(receipt_width/2, y_position, "Cảm ơn quý khách!")
-        y_position -= 0.4*cm
+        # Line numbering function
+        def draw_line_number(number):
+            set_font('bold', 12)
+            c.drawString(1*cm, y_position, f"{number:02d}.")
         
-        if font_name == 'Roboto':
-            try:
-                c.setFont("Roboto", 8)
-            except:
-                c.setFont("Helvetica", 8)
-        else:
-            c.setFont("Helvetica", 8)
+        # Draw store name (centered)
+        draw_line_number(line_number)
+        line_number += 1
+        set_font('bold', 28)
+        c.drawCentredString(width/2, y_position, store_name)
+        y_position -= 1.2*cm
         
-        c.drawCentredString(receipt_width/2, y_position, "Hẹn gặp lại quý khách.")
+        # Draw store address (centered)
+        draw_line_number(line_number)
+        line_number += 1
+        set_font('normal', 14)
+        c.drawCentredString(width/2, y_position, store_address)
+        y_position -= 0.7*cm
+        c.drawCentredString(width/2, y_position, store_phone)
         y_position -= 1*cm
         
-        # Update required height
-        required_height = max(required_height, receipt_height - y_position + 2*cm)
+        # Draw separator line
+        draw_line_number(line_number)
+        line_number += 1
+        c.setLineWidth(1)
+        c.line(4*cm, y_position, 19*cm, y_position)
+        y_position -= 1*cm
         
-        # Finish the page and adjust height
-        c.showPage()
+        # Draw bill number
+        draw_line_number(line_number)
+        line_number += 1
+        set_font('bold', 18)
+        c.drawString(4*cm, y_position, f"Bill No. :")
+        c.drawString(10*cm, y_position, f"#{order_id}#")
+        y_position -= 1*cm
         
-        # Create a new PDF with the correct height
-        new_buffer = io.BytesIO()
-        new_c = canvas.Canvas(new_buffer, pagesize=(receipt_width, required_height))
+        # Draw customer information
+        draw_line_number(line_number)
+        line_number += 1
+        set_font('normal', 18)
+        c.drawString(4*cm, y_position, f"Khách hàng: {customer_name}")
+        y_position -= 0.7*cm
         
-        # Reuse the page we created
-        new_c._pagesize = (receipt_width, required_height)
-        new_c._pages = c._pages
+        # Add line number for phone
+        draw_line_number(line_number)
+        line_number += 1
+        set_font('normal', 18)
+        c.drawString(4*cm, y_position, f"Số điện thoại: {customer_phone}")
+        y_position -= 0.7*cm
+        
+        # Add line number for address
+        draw_line_number(line_number)
+        line_number += 1
+        set_font('normal', 18)
+        c.drawString(4*cm, y_position, f"Địa chỉ: {customer_address}")
+        y_position -= 1*cm
+        
+        # Draw date
+        draw_line_number(line_number)
+        line_number += 1
+        set_font('normal', 18)
+        c.drawString(4*cm, y_position, f"Ngày: {order_data['date']}")
+        y_position -= 1*cm
+        
+        # Draw separator line
+        draw_line_number(line_number)
+        line_number += 1
+        c.setLineWidth(1)
+        c.line(4*cm, y_position, 19*cm, y_position)
+        y_position -= 1*cm
+        
+        # Draw column headers
+        draw_line_number(line_number)
+        line_number += 1
+        set_font('bold', 18)
+        c.drawString(4*cm, y_position, "Item x Qty")
+        c.drawRightString(19*cm, y_position, "Price")
+        y_position -= 0.8*cm
+        
+        # Draw items
+        for _, item in order_items.iterrows():
+            draw_line_number(line_number)
+            line_number += 1
+            set_font('normal', 18)
+            c.drawString(4*cm, y_position, f"{item['name']} x {item['quantity']}")
+            c.drawRightString(19*cm, y_position, f"{item['subtotal']:,.0f}")
+            y_position -= 0.8*cm
+            
+            # Check if we need to start a new page
+            if y_position < 5*cm:
+                c.showPage()
+                y_position = height - 3*cm
+                # Reset line numbering on the new page
+                line_number = 1
+        
+        # Draw separator line
+        draw_line_number(line_number)
+        line_number += 1
+        c.setLineWidth(1)
+        c.line(4*cm, y_position, 19*cm, y_position)
+        y_position -= 1*cm
+        
+        # Draw items/qty count
+        draw_line_number(line_number)
+        line_number += 1
+        set_font('normal', 18)
+        c.drawString(4*cm, y_position, "Items/Qty")
+        c.drawRightString(19*cm, y_position, f"{len(order_items)}/{order_items['quantity'].sum()}")
+        y_position -= 1*cm
+        
+        # Draw total
+        draw_line_number(line_number)
+        line_number += 1
+        set_font('bold', 22)
+        c.drawString(4*cm, y_position, "Total")
+        c.drawRightString(19*cm, y_position, f"{total_amount:,.0f}")
+        y_position -= 1*cm
+        
+        # Draw separator line
+        draw_line_number(line_number)
+        line_number += 1
+        c.setLineWidth(1)
+        c.line(4*cm, y_position, 19*cm, y_position)
+        y_position -= 1*cm
+        
+        # Draw payment method
+        draw_line_number(line_number)
+        line_number += 1
+        set_font('normal', 18)
+        c.drawString(4*cm, y_position, "Payment Method")
+        c.drawRightString(19*cm, y_position, "Card")
+        y_position -= 1.5*cm
+        
+        # Empty line
+        draw_line_number(line_number)
+        line_number += 1
+        y_position -= 1*cm
+        
+        # Thank you message
+        draw_line_number(line_number)
+        line_number += 1
+        set_font('normal', 18)
+        c.drawCentredString(width/2, y_position, '" XIN CẢM ƠN QUY KHÁCH."')
+        
+        # Add QR code if available (from original code)
+        # This is positioned lower to not interfere with the receipt format
+        try:
+            qr_y_position = 5*cm  # Lower position for QR code
+            qr_image_path = "C:\\Users\\Computer\\PycharmProjects\\bakery_sys\\assets\\qr_cua_xuan.png"
+            c.drawImage(qr_image_path, 2*cm, qr_y_position, width=3*cm, height=3*cm)
+            
+            set_font('bold', 10)
+            c.drawCentredString(3.5*cm, qr_y_position - 0.5*cm, "Quét để thanh toán")
+            
+            set_font('normal', 9)
+            # Account information from original code
+            account_number = "19037177788018"
+            account_name = "NGUYEN THU XUAN"
+            c.drawCentredString(3.5*cm, qr_y_position - 1*cm, f"STK: {account_number}")
+            c.drawCentredString(3.5*cm, qr_y_position - 1.5*cm, f"Tên: {account_name}")
+        except Exception:
+            # If QR code insertion fails, we don't add any note to maintain the receipt format
+            pass
         
         # Save the PDF
-        new_c.save()
-        pdf_data = new_buffer.getvalue()
-        new_buffer.close()
+        c.save()
+        pdf_data = buffer.getvalue()
         buffer.close()
         
         return pdf_data
-    
+        
 def download_link(content, filename, text, is_pdf=False):
     """Generate a link to download content as a file"""
     if is_pdf:
@@ -841,7 +775,7 @@ if tab_selection == "Quản lý Đơn hàng":
                 # Create order
                 new_order = pd.DataFrame({
                     'order_id': [order_id],
-                    'date': [datetime.date.today().strftime("%Y-%m-%d")],
+                    'date': [date.today().strftime("%Y-%m-%d")],
                     'customer_name': [customer_name],
                     'customer_phone': [customer_phone],
                     'customer_address': [customer_address],
@@ -878,7 +812,7 @@ if tab_selection == "Quản lý Đơn hàng":
                 new_invoice = pd.DataFrame({
                     'invoice_id': [invoice_id],
                     'order_id': [order_id],
-                    'date': [datetime.date.today().strftime("%Y-%m-%d")],
+                    'date': [date.today().strftime("%Y-%m-%d")],
                     'customer_name': [customer_name],
                     'total_amount': [total_amount],  # Use grand total (products + shipping)
                     'payment_method': ['Tiền mặt']  # Default payment method
