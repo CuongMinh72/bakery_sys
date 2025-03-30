@@ -12,7 +12,7 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import inch
 import io
 from reportlab.pdfgen import canvas
-from reportlab.lib.pagesizes import A4
+from reportlab.lib.pagesizes import A3
 from reportlab.lib.units import cm
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
@@ -483,18 +483,13 @@ def generate_invoice_content(invoice_id, order_id, as_pdf=False):
         
         return invoice_content
     else:
-        # Import modules - keep these inside the function to avoid import errors
-        import io
-        from reportlab.pdfgen import canvas
-        from reportlab.lib.pagesizes import A4
-        from reportlab.lib.units import cm
         
         # PDF version with fixed formatting
         buffer = io.BytesIO()
-        width, height = A4
+        width, height = A3
         
         # Create the PDF
-        c = canvas.Canvas(buffer, pagesize=A4)
+        c = canvas.Canvas(buffer, pagesize=A3)
         
         # Set up font for Vietnamese
         font_name = setup_vietnamese_font()
