@@ -416,7 +416,7 @@ def update_income(order_id):
 
 def generate_invoice_content(invoice_id, order_id, as_pdf=False):
     """Generate invoice content either as text or PDF to match the simplified receipt format
-    with improved formatting and proper spacing"""
+    optimized for A3 paper size"""
     order_data = st.session_state.orders[st.session_state.orders['order_id'] == order_id].iloc[0]
     order_items = st.session_state.order_items[st.session_state.order_items['order_id'] == order_id]
     
@@ -483,12 +483,17 @@ def generate_invoice_content(invoice_id, order_id, as_pdf=False):
         
         return invoice_content
     else:
+        # Import required modules
+        import io
+        from reportlab.pdfgen import canvas
+        from reportlab.lib.pagesizes import A3
+        from reportlab.lib.units import cm
         
-        # PDF version with fixed formatting
+        # PDF version optimized for A3
         buffer = io.BytesIO()
-        width, height = A3
+        width, height = A3  # A3 size: 29.7 x 42.0 cm
         
-        # Create the PDF
+        # Create the PDF with A3 size
         c = canvas.Canvas(buffer, pagesize=A3)
         
         # Set up font for Vietnamese
@@ -504,123 +509,127 @@ def generate_invoice_content(invoice_id, order_id, as_pdf=False):
             else:
                 c.setFont(f"Helvetica{'-Bold' if font_style == 'bold' else ''}", size)
         
-        # Initialize y position
-        y_position = height - 2*cm
+        # Adjusted margins for A3 paper
+        left_margin = 5*cm
+        right_margin = width - 5*cm
         
-        # Draw store name (centered)
-        set_font('bold', 34)  # Large size for store name
+        # Initialize y position with more space at the top
+        y_position = height - 5*cm
+        
+        # Draw store name (centered) - larger font for A3
+        set_font('bold', 60)  # Increased font size for A3
         c.drawCentredString(width/2, y_position, store_name)
-        y_position -= 1.2*cm
-        
-        # Draw store address (centered)
-        set_font('normal', 14)
-        c.drawCentredString(width/2, y_position, store_address)
-        y_position -= 0.7*cm
-        c.drawCentredString(width/2, y_position, store_phone)
-        y_position -= 1*cm
-        
-        # Draw separator line
-        c.setLineWidth(1)
-        c.line(2.5*cm, y_position, 19*cm, y_position)
-        y_position -= 1*cm
-        
-        # Bill number with proper alignment
-        set_font('bold', 18)
-        c.drawString(2.5*cm, y_position, "Bill No. :")
-        c.drawString(8*cm, y_position, f"#{order_id}#")
-        y_position -= 1*cm
-        
-        # Customer information with proper spacing
-        set_font('normal', 18)
-        c.drawString(2.5*cm, y_position, f"Khách hàng: {customer_name}")
-        y_position -= 0.7*cm
-        
-        # Phone
-        set_font('normal', 18)
-        c.drawString(2.5*cm, y_position, f"Số điện thoại: {customer_phone}")
-        y_position -= 0.7*cm
-        
-        # Address
-        set_font('normal', 18)
-        c.drawString(2.5*cm, y_position, f"Địa chỉ: {customer_address}")
-        y_position -= 1*cm
-        
-        # Date
-        set_font('normal', 18)
-        c.drawString(2.5*cm, y_position, f"Ngày: {order_data['date']}")
-        y_position -= 1*cm
-        
-        # Draw separator line
-        c.setLineWidth(1)
-        c.line(2.5*cm, y_position, 19*cm, y_position)
-        y_position -= 1*cm
-        
-        # Column headers with better alignment
-        set_font('bold', 18)
-        c.drawString(2.5*cm, y_position, "Item x Qty")
-        c.drawRightString(19*cm, y_position, "Price")
-        y_position -= 0.8*cm
-        
-        # Draw items with better spacing and alignment
-        for _, item in order_items.iterrows():
-            set_font('normal', 18)
-            c.drawString(2.5*cm, y_position, f"{item['name']} x {item['quantity']}")
-            # Right-align the price with consistent formatting
-            c.drawRightString(19*cm, y_position, f"{item['subtotal']:,.0f}")
-            y_position -= 0.8*cm
-            
-            # Check if we need to start a new page
-            if y_position < 5*cm:
-                c.showPage()
-                y_position = height - 3*cm
-        
-        # Draw separator line
-        c.setLineWidth(1)
-        c.line(2.5*cm, y_position, 19*cm, y_position)
-        y_position -= 1*cm
-        
-        # Items/Qty count with proper alignment
-        set_font('normal', 18)
-        c.drawString(2.5*cm, y_position, "Items/Qty")
-        c.drawRightString(19*cm, y_position, f"{len(order_items)}/{order_items['quantity'].sum()}")
-        y_position -= 1*cm
-        
-        # Total with proper alignment and emphasis
-        set_font('bold', 22)
-        c.drawString(2.5*cm, y_position, "Total")
-        c.drawRightString(19*cm, y_position, f"{total_amount:,.0f}")
-        y_position -= 1*cm
-        
-        # Draw separator line
-        c.setLineWidth(1)
-        c.line(2.5*cm, y_position, 19*cm, y_position)
-        y_position -= 1*cm
-        
-        # Payment method with proper alignment
-        set_font('normal', 18)
-        c.drawString(2.5*cm, y_position, "Payment Method")
-        c.drawRightString(19*cm, y_position, "Card")
         y_position -= 2.5*cm
         
+        # Draw store address (centered)
+        set_font('normal', 24)  # Increased font size for A3
+        c.drawCentredString(width/2, y_position, store_address)
+        y_position -= 1.2*cm
+        c.drawCentredString(width/2, y_position, store_phone)
+        y_position -= 2*cm
+        
+        # Draw separator line - wider for A3
+        c.setLineWidth(2)  # Thicker line for A3
+        c.line(left_margin, y_position, right_margin, y_position)
+        y_position -= 2*cm
+        
+        # Bill number with proper alignment for A3
+        set_font('bold', 36)  # Increased font size for A3
+        c.drawString(left_margin, y_position, "Bill No. :")
+        c.drawString(left_margin + 10*cm, y_position, f"#{order_id}#")
+        y_position -= 2*cm
+        
+        # Customer information with proper spacing for A3
+        set_font('normal', 30)  # Increased font size for A3
+        c.drawString(left_margin, y_position, f"Khách hàng: {customer_name}")
+        y_position -= 1.5*cm
+        
+        # Phone
+        set_font('normal', 30)  # Increased font size for A3
+        c.drawString(left_margin, y_position, f"Số điện thoại: {customer_phone}")
+        y_position -= 1.5*cm
+        
+        # Address
+        set_font('normal', 30)  # Increased font size for A3
+        c.drawString(left_margin, y_position, f"Địa chỉ: {customer_address}")
+        y_position -= 2*cm
+        
+        # Date
+        set_font('normal', 30)  # Increased font size for A3
+        c.drawString(left_margin, y_position, f"Ngày: {order_data['date']}")
+        y_position -= 2*cm
+        
+        # Draw separator line
+        c.setLineWidth(2)
+        c.line(left_margin, y_position, right_margin, y_position)
+        y_position -= 2*cm
+        
+        # Column headers with better alignment for A3
+        set_font('bold', 36)  # Increased font size for A3
+        c.drawString(left_margin, y_position, "Item x Qty")
+        c.drawRightString(right_margin, y_position, "Price")
+        y_position -= 1.5*cm
+        
+        # Draw items with better spacing and alignment for A3
+        for _, item in order_items.iterrows():
+            set_font('normal', 30)  # Increased font size for A3
+            c.drawString(left_margin, y_position, f"{item['name']} x {item['quantity']}")
+            # Right-align the price with consistent formatting
+            c.drawRightString(right_margin, y_position, f"{item['subtotal']:,.0f}")
+            y_position -= 1.5*cm
+            
+            # Check if we need to start a new page - adjusted for A3
+            if y_position < 10*cm:
+                c.showPage()
+                y_position = height - 5*cm
+        
+        # Draw separator line
+        c.setLineWidth(2)
+        c.line(left_margin, y_position, right_margin, y_position)
+        y_position -= 2*cm
+        
+        # Items/Qty count with proper alignment
+        set_font('normal', 30)  # Increased font size for A3
+        c.drawString(left_margin, y_position, "Items/Qty")
+        c.drawRightString(right_margin, y_position, f"{len(order_items)}/{order_items['quantity'].sum()}")
+        y_position -= 2*cm
+        
+        # Total with proper alignment and emphasis
+        set_font('bold', 40)  # Increased font size for A3
+        c.drawString(left_margin, y_position, "Total")
+        c.drawRightString(right_margin, y_position, f"{total_amount:,.0f}")
+        y_position -= 2*cm
+        
+        # Draw separator line
+        c.setLineWidth(2)
+        c.line(left_margin, y_position, right_margin, y_position)
+        y_position -= 2*cm
+        
+        # Payment method with proper alignment
+        set_font('normal', 30)  # Increased font size for A3
+        c.drawString(left_margin, y_position, "Payment Method")
+        c.drawRightString(right_margin, y_position, "Card")
+        y_position -= 4*cm
+        
         # Thank you message with proper formatting and quotes
-        set_font('normal', 18)
+        set_font('normal', 36)  # Increased font size for A3
         c.drawCentredString(width/2, y_position, '" XIN CẢM ƠN QUY KHÁCH."')
         
-        # Add QR code if available
+        # Add QR code if available - larger for A3
         try:
-            qr_y_position = 5*cm  # Lower position for QR code
+            qr_y_position = 10*cm  # Lower position for QR code on A3
             qr_image_path = "C:\\Users\\Computer\\PycharmProjects\\bakery_sys\\assets\\qr_cua_xuan.png"
-            c.drawImage(qr_image_path, 2.5*cm, qr_y_position, width=4*cm, height=4*cm)
+            c.drawImage(qr_image_path, left_margin, qr_y_position, width=8*cm, height=8*cm)  # Larger QR code for A3
             
-            set_font('bold', 10)
-            c.drawCentredString(4.5*cm, qr_y_position - 0.5*cm, "Quét để thanh toán")
+            set_font('bold', 20)  # Increased font size for A3
+            c.drawCentredString(left_margin + 4*cm, qr_y_position - 1*cm, "Quét để thanh toán")
             
-            set_font('normal', 9)
+            set_font('normal', 18)  # Increased font size for A3
             # Account information
             account_number = "19037177788018"
             account_name = "NGUYEN THU XUAN"
-            c.drawCentredString(4.5*cm, qr_y_position - 1*cm, f"STK: {account_number}")
-            c.drawCentredString(4.5*cm, qr_y_position - 1.5*cm, f"Tên: {account_name}")
+            c.drawCentredString(left_margin + 4*cm, qr_y_position - 2*cm, f"STK: {account_number}")
+            c.drawCentredString(left_margin + 4*cm, qr_y_position - 3*cm, f"Tên: {account_name}")
         except Exception:
             # If QR code insertion fails, we don't add any note
             pass
