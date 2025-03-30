@@ -416,7 +416,7 @@ def update_income(order_id):
 
 def generate_invoice_content(invoice_id, order_id, as_pdf=False):
     """Generate invoice content either as text or PDF to match the simplified receipt format
-    with doubled font sizes for better readability"""
+    with improved formatting and proper spacing"""
     order_data = st.session_state.orders[st.session_state.orders['order_id'] == order_id].iloc[0]
     order_items = st.session_state.order_items[st.session_state.order_items['order_id'] == order_id]
     
@@ -442,7 +442,7 @@ def generate_invoice_content(invoice_id, order_id, as_pdf=False):
     store_phone = "ĐT: 0988 159 268"
     
     if not as_pdf:
-        # Text version - not modifying this since text version sizing depends on terminal/display
+        # Text version
         invoice_content = f"""
                                 {store_name}
                                {store_address}
@@ -483,7 +483,13 @@ def generate_invoice_content(invoice_id, order_id, as_pdf=False):
         
         return invoice_content
     else:
-        # PDF version with all font sizes doubled
+        # Import modules - keep these inside the function to avoid import errors
+        import io
+        from reportlab.pdfgen import canvas
+        from reportlab.lib.pagesizes import A4
+        from reportlab.lib.units import cm
+        
+        # PDF version with fixed formatting
         buffer = io.BytesIO()
         width, height = A4
         
@@ -493,79 +499,78 @@ def generate_invoice_content(invoice_id, order_id, as_pdf=False):
         # Set up font for Vietnamese
         font_name = setup_vietnamese_font()
         
-        # Function to use proper font with fallback - all font sizes doubled
+        # Function to use proper font with fallback
         def set_font(font_style, size):
-            # Double the font size
-            doubled_size = size * 2
             if font_name == 'Roboto':
                 try:
-                    c.setFont(f"Roboto{'-Bold' if font_style == 'bold' else ''}", doubled_size)
+                    c.setFont(f"Roboto{'-Bold' if font_style == 'bold' else ''}", size)
                 except:
-                    c.setFont(f"Helvetica{'-Bold' if font_style == 'bold' else ''}", doubled_size)
+                    c.setFont(f"Helvetica{'-Bold' if font_style == 'bold' else ''}", size)
             else:
-                c.setFont(f"Helvetica{'-Bold' if font_style == 'bold' else ''}", doubled_size)
+                c.setFont(f"Helvetica{'-Bold' if font_style == 'bold' else ''}", size)
         
-        # Initialize y position - start higher on the page
+        # Initialize y position
         y_position = height - 2*cm
         
         # Draw store name (centered)
-        set_font('bold', 34)  # Original size was 34, now doubled
+        set_font('bold', 34)  # Large size for store name
         c.drawCentredString(width/2, y_position, store_name)
         y_position -= 1.2*cm
         
         # Draw store address (centered)
-        set_font('normal', 14)  # Original size was 14, now doubled
+        set_font('normal', 14)
         c.drawCentredString(width/2, y_position, store_address)
         y_position -= 0.7*cm
         c.drawCentredString(width/2, y_position, store_phone)
         y_position -= 1*cm
         
-        # Draw separator line - make it twice as thick
-        c.setLineWidth(2)  # Original was 1
+        # Draw separator line
+        c.setLineWidth(1)
         c.line(2.5*cm, y_position, 19*cm, y_position)
         y_position -= 1*cm
         
-        # Draw bill number
-        set_font('bold', 18)  # Original size was 18, now doubled
-        c.drawString(2.5*cm, y_position, f"Bill No. :")
-        c.drawString(10*cm, y_position, f"#{order_id}#")
+        # Bill number with proper alignment
+        set_font('bold', 18)
+        c.drawString(2.5*cm, y_position, "Bill No. :")
+        c.drawString(8*cm, y_position, f"#{order_id}#")
         y_position -= 1*cm
         
-        # Draw customer information
-        set_font('normal', 18)  # Original size was 18, now doubled
+        # Customer information with proper spacing
+        set_font('normal', 18)
         c.drawString(2.5*cm, y_position, f"Khách hàng: {customer_name}")
         y_position -= 0.7*cm
         
         # Phone
-        set_font('normal', 18)  # Original size was 18, now doubled
+        set_font('normal', 18)
         c.drawString(2.5*cm, y_position, f"Số điện thoại: {customer_phone}")
         y_position -= 0.7*cm
         
         # Address
-        set_font('normal', 18)  # Original size was 18, now doubled
+        set_font('normal', 18)
         c.drawString(2.5*cm, y_position, f"Địa chỉ: {customer_address}")
         y_position -= 1*cm
         
-        # Draw date
-        set_font('normal', 18)  # Original size was 18, now doubled
+        # Date
+        set_font('normal', 18)
         c.drawString(2.5*cm, y_position, f"Ngày: {order_data['date']}")
         y_position -= 1*cm
         
-        # Draw separator line - make it twice as thick
-        c.setLineWidth(2)  # Original was 1
+        # Draw separator line
+        c.setLineWidth(1)
         c.line(2.5*cm, y_position, 19*cm, y_position)
         y_position -= 1*cm
         
-        # Draw column headers
-        set_font('bold', 18)  # Original size was 18, now doubled
+        # Column headers with better alignment
+        set_font('bold', 18)
         c.drawString(2.5*cm, y_position, "Item x Qty")
         c.drawRightString(19*cm, y_position, "Price")
         y_position -= 0.8*cm
         
-        # Draw items
+        # Draw items with better spacing and alignment
         for _, item in order_items.iterrows():
-            set_font('normal', 18)  # Original size was 18, now doubled
+            set_font('normal', 18)
             c.drawString(2.5*cm, y_position, f"{item['name']} x {item['quantity']}")
+            # Right-align the price with consistent formatting
             c.drawRightString(19*cm, y_position, f"{item['subtotal']:,.0f}")
             y_position -= 0.8*cm
             
@@ -574,54 +579,53 @@ def generate_invoice_content(invoice_id, order_id, as_pdf=False):
                 c.showPage()
                 y_position = height - 3*cm
         
-        # Draw separator line - make it twice as thick
-        c.setLineWidth(2)  # Original was 1
+        # Draw separator line
+        c.setLineWidth(1)
         c.line(2.5*cm, y_position, 19*cm, y_position)
         y_position -= 1*cm
         
-        # Draw items/qty count
-        set_font('normal', 18)  # Original size was 18, now doubled
+        # Items/Qty count with proper alignment
+        set_font('normal', 18)
         c.drawString(2.5*cm, y_position, "Items/Qty")
         c.drawRightString(19*cm, y_position, f"{len(order_items)}/{order_items['quantity'].sum()}")
         y_position -= 1*cm
         
-        # Draw total
-        set_font('bold', 22)  # Original size was 22, now doubled
+        # Total with proper alignment and emphasis
+        set_font('bold', 22)
         c.drawString(2.5*cm, y_position, "Total")
         c.drawRightString(19*cm, y_position, f"{total_amount:,.0f}")
         y_position -= 1*cm
         
-        # Draw separator line - make it twice as thick
-        c.setLineWidth(2)  # Original was 1
+        # Draw separator line
+        c.setLineWidth(1)
         c.line(2.5*cm, y_position, 19*cm, y_position)
         y_position -= 1*cm
         
-        # Draw payment method
-        set_font('normal', 18)  # Original size was 18, now doubled
+        # Payment method with proper alignment
+        set_font('normal', 18)
         c.drawString(2.5*cm, y_position, "Payment Method")
         c.drawRightString(19*cm, y_position, "Card")
         y_position -= 2.5*cm
         
-        # Thank you message
-        set_font('normal', 18)  # Original size was 18, now doubled
+        # Thank you message with proper formatting and quotes
+        set_font('normal', 18)
         c.drawCentredString(width/2, y_position, '" XIN CẢM ƠN QUY KHÁCH."')
         
-        # Add QR code if available - doubled in size
+        # Add QR code if available
         try:
             qr_y_position = 5*cm  # Lower position for QR code
             qr_image_path = "C:\\Users\\Computer\\PycharmProjects\\bakery_sys\\assets\\qr_cua_xuan.png"
-            # Double the QR code size from 3*cm to 6*cm
-            c.drawImage(qr_image_path, 2.5*cm, qr_y_position, width=6*cm, height=6*cm)
+            c.drawImage(qr_image_path, 2.5*cm, qr_y_position, width=4*cm, height=4*cm)
             
-            set_font('bold', 10)  # Original size was 10, now doubled
-            c.drawCentredString(5.5*cm, qr_y_position - 0.5*cm, "Quét để thanh toán")
+            set_font('bold', 10)
+            c.drawCentredString(4.5*cm, qr_y_position - 0.5*cm, "Quét để thanh toán")
             
-            set_font('normal', 9)  # Original size was 9, now doubled
+            set_font('normal', 9)
             # Account information
             account_number = "19037177788018"
             account_name = "NGUYEN THU XUAN"
-            c.drawCentredString(5.5*cm, qr_y_position - 1*cm, f"STK: {account_number}")
-            c.drawCentredString(5.5*cm, qr_y_position - 1.5*cm, f"Tên: {account_name}")
+            c.drawCentredString(4.5*cm, qr_y_position - 1*cm, f"STK: {account_number}")
+            c.drawCentredString(4.5*cm, qr_y_position - 1.5*cm, f"Tên: {account_name}")
         except Exception:
             # If QR code insertion fails, we don't add any note
             pass
