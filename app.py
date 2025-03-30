@@ -414,6 +414,18 @@ def update_income(order_id):
         
         st.session_state.income = pd.concat([st.session_state.income, new_row], ignore_index=True)
 
+from datetime import datetime
+import io
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.units import cm
+from reportlab.pdfgen import canvas
+
+def setup_vietnamese_font():
+    """Setup font that supports Vietnamese characters"""
+    # In a real implementation, you would register and return a Vietnamese-compatible font
+    # For this example we'll return 'Roboto' which is commonly used
+    return 'Roboto'
+
 def generate_invoice_content(invoice_id, order_id, as_pdf=False):
     """Generate invoice content either as text or PDF to match the simplified receipt format"""
     order_data = st.session_state.orders[st.session_state.orders['order_id'] == order_id].iloc[0]
@@ -449,13 +461,13 @@ def generate_invoice_content(invoice_id, order_id, as_pdf=False):
         
         -----------------------------------------
         
-        Bill No.: #{order_id}#
+        Bill No. :                #{order_id}#
         
-        Customer: {customer_name}
-        Phone: {customer_phone}
-        Address: {customer_address}
+        Khách hàng: {customer_name}
+        Số điện thoại: {customer_phone}
+        Địa chỉ: {customer_address}
         
-        #{order_data['date']}#
+        Ngày: {order_data['date']}
         
         -----------------------------------------
         
@@ -477,12 +489,12 @@ def generate_invoice_content(invoice_id, order_id, as_pdf=False):
         Payment Method                        Card
         
         
-        "" XIN CẢM ƠN QUY KHÁCH. ""
+        " XIN CẢM ƠN QUY KHÁCH."
         """
         
         return invoice_content
     else:
-        # PDF version with numbered lines and simplified format
+        # PDF version with simplified format (no line numbers)
         buffer = io.BytesIO()
         width, height = A4
         
@@ -504,23 +516,13 @@ def generate_invoice_content(invoice_id, order_id, as_pdf=False):
         
         # Initialize y position
         y_position = height - 2*cm
-        line_number = 1
-        
-        # Line numbering function
-        def draw_line_number(number):
-            set_font('bold', 12)
-            c.drawString(1*cm, y_position, f"{number:02d}.")
         
         # Draw store name (centered)
-        draw_line_number(line_number)
-        line_number += 1
         set_font('bold', 28)
         c.drawCentredString(width/2, y_position, store_name)
         y_position -= 1.2*cm
         
         # Draw store address (centered)
-        draw_line_number(line_number)
-        line_number += 1
         set_font('normal', 14)
         c.drawCentredString(width/2, y_position, store_address)
         y_position -= 0.7*cm
@@ -528,69 +530,51 @@ def generate_invoice_content(invoice_id, order_id, as_pdf=False):
         y_position -= 1*cm
         
         # Draw separator line
-        draw_line_number(line_number)
-        line_number += 1
         c.setLineWidth(1)
-        c.line(4*cm, y_position, 19*cm, y_position)
+        c.line(2.5*cm, y_position, 19*cm, y_position)
         y_position -= 1*cm
         
         # Draw bill number
-        draw_line_number(line_number)
-        line_number += 1
         set_font('bold', 18)
-        c.drawString(4*cm, y_position, f"Bill No. :")
+        c.drawString(2.5*cm, y_position, f"Bill No. :")
         c.drawString(10*cm, y_position, f"#{order_id}#")
         y_position -= 1*cm
         
         # Draw customer information
-        draw_line_number(line_number)
-        line_number += 1
         set_font('normal', 18)
-        c.drawString(4*cm, y_position, f"Khách hàng: {customer_name}")
+        c.drawString(2.5*cm, y_position, f"Khách hàng: {customer_name}")
         y_position -= 0.7*cm
         
-        # Add line number for phone
-        draw_line_number(line_number)
-        line_number += 1
+        # Phone
         set_font('normal', 18)
-        c.drawString(4*cm, y_position, f"Số điện thoại: {customer_phone}")
+        c.drawString(2.5*cm, y_position, f"Số điện thoại: {customer_phone}")
         y_position -= 0.7*cm
         
-        # Add line number for address
-        draw_line_number(line_number)
-        line_number += 1
+        # Address
         set_font('normal', 18)
-        c.drawString(4*cm, y_position, f"Địa chỉ: {customer_address}")
+        c.drawString(2.5*cm, y_position, f"Địa chỉ: {customer_address}")
         y_position -= 1*cm
         
         # Draw date
-        draw_line_number(line_number)
-        line_number += 1
         set_font('normal', 18)
-        c.drawString(4*cm, y_position, f"Ngày: {order_data['date']}")
+        c.drawString(2.5*cm, y_position, f"Ngày: {order_data['date']}")
         y_position -= 1*cm
         
         # Draw separator line
-        draw_line_number(line_number)
-        line_number += 1
         c.setLineWidth(1)
-        c.line(4*cm, y_position, 19*cm, y_position)
+        c.line(2.5*cm, y_position, 19*cm, y_position)
         y_position -= 1*cm
         
         # Draw column headers
-        draw_line_number(line_number)
-        line_number += 1
         set_font('bold', 18)
-        c.drawString(4*cm, y_position, "Item x Qty")
+        c.drawString(2.5*cm, y_position, "Item x Qty")
         c.drawRightString(19*cm, y_position, "Price")
         y_position -= 0.8*cm
         
         # Draw items
         for _, item in order_items.iterrows():
-            draw_line_number(line_number)
-            line_number += 1
             set_font('normal', 18)
-            c.drawString(4*cm, y_position, f"{item['name']} x {item['quantity']}")
+            c.drawString(2.5*cm, y_position, f"{item['name']} x {item['quantity']}")
             c.drawRightString(19*cm, y_position, f"{item['subtotal']:,.0f}")
             y_position -= 0.8*cm
             
@@ -598,76 +582,56 @@ def generate_invoice_content(invoice_id, order_id, as_pdf=False):
             if y_position < 5*cm:
                 c.showPage()
                 y_position = height - 3*cm
-                # Reset line numbering on the new page
-                line_number = 1
         
         # Draw separator line
-        draw_line_number(line_number)
-        line_number += 1
         c.setLineWidth(1)
-        c.line(4*cm, y_position, 19*cm, y_position)
+        c.line(2.5*cm, y_position, 19*cm, y_position)
         y_position -= 1*cm
         
         # Draw items/qty count
-        draw_line_number(line_number)
-        line_number += 1
         set_font('normal', 18)
-        c.drawString(4*cm, y_position, "Items/Qty")
+        c.drawString(2.5*cm, y_position, "Items/Qty")
         c.drawRightString(19*cm, y_position, f"{len(order_items)}/{order_items['quantity'].sum()}")
         y_position -= 1*cm
         
         # Draw total
-        draw_line_number(line_number)
-        line_number += 1
         set_font('bold', 22)
-        c.drawString(4*cm, y_position, "Total")
+        c.drawString(2.5*cm, y_position, "Total")
         c.drawRightString(19*cm, y_position, f"{total_amount:,.0f}")
         y_position -= 1*cm
         
         # Draw separator line
-        draw_line_number(line_number)
-        line_number += 1
         c.setLineWidth(1)
-        c.line(4*cm, y_position, 19*cm, y_position)
+        c.line(2.5*cm, y_position, 19*cm, y_position)
         y_position -= 1*cm
         
         # Draw payment method
-        draw_line_number(line_number)
-        line_number += 1
         set_font('normal', 18)
-        c.drawString(4*cm, y_position, "Payment Method")
+        c.drawString(2.5*cm, y_position, "Payment Method")
         c.drawRightString(19*cm, y_position, "Card")
-        y_position -= 1.5*cm
-        
-        # Empty line
-        draw_line_number(line_number)
-        line_number += 1
-        y_position -= 1*cm
+        y_position -= 2.5*cm
         
         # Thank you message
-        draw_line_number(line_number)
-        line_number += 1
         set_font('normal', 18)
         c.drawCentredString(width/2, y_position, '" XIN CẢM ƠN QUY KHÁCH."')
         
-        # Add QR code if available (from original code)
-        # This is positioned lower to not interfere with the receipt format
+        # Add QR code if available
         try:
             qr_y_position = 5*cm  # Lower position for QR code
             qr_image_path = "C:\\Users\\Computer\\PycharmProjects\\bakery_sys\\assets\\qr_cua_xuan.png"
-            c.drawImage(qr_image_path, 2*cm, qr_y_position, width=3*cm, height=3*cm)
+            c.drawImage(qr_image_path, 2.5*cm, qr_y_position, width=3*cm, height=3*cm)
             
             set_font('bold', 10)
-            c.drawCentredString(3.5*cm, qr_y_position - 0.5*cm, "Quét để thanh toán")
+            c.drawCentredString(4*cm, qr_y_position - 0.5*cm, "Quét để thanh toán")
             
             set_font('normal', 9)
-            # Account information from original code
+            # Account information
             account_number = "19037177788018"
             account_name = "NGUYEN THU XUAN"
-            c.drawCentredString(3.5*cm, qr_y_position - 1*cm, f"STK: {account_number}")
-            c.drawCentredString(3.5*cm, qr_y_position - 1.5*cm, f"Tên: {account_name}")
+            c.drawCentredString(4*cm, qr_y_position - 1*cm, f"STK: {account_number}")
+            c.drawCentredString(4*cm, qr_y_position - 1.5*cm, f"Tên: {account_name}")
         except Exception:
-            # If QR code insertion fails, we don't add any note to maintain the receipt format
+            # If QR code insertion fails, we don't add any note
             pass
         
         # Save the PDF
