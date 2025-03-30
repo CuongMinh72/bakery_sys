@@ -673,12 +673,15 @@ def generate_invoice_content(invoice_id, order_id, as_pdf=False):
         else:
             c.setFont("Helvetica", 16)
             
-        c.drawString(12*cm, y_position, "Tổng sản phẩm:")
+        # Move labels more to the left and values more to the right to create space
+        c.drawString(10*cm, y_position, "Tổng sản phẩm:")
+        # Format with space between number and currency
         c.drawRightString(19*cm, y_position, f"{order_data['total_amount']:,.0f} VND")
         
         # Shipping fee - Increased spacing
         y_position -= 1*cm  # Increased spacing
-        c.drawString(12*cm, y_position, "Phí vận chuyển:")
+        c.drawString(10*cm, y_position, "Phí vận chuyển:")
+        # Format with space between number and currency
         c.drawRightString(19*cm, y_position, f"{shipping_fee:,.0f} VND")
         
         # Final total with shipping - Increased font size and better positioning
@@ -691,8 +694,10 @@ def generate_invoice_content(invoice_id, order_id, as_pdf=False):
         else:
             c.setFont("Helvetica-Bold", 18)
             
-        c.drawString(12*cm, y_position, "TỔNG CỘNG:")
-        c.drawRightString(19*cm, y_position, f"{total_amount:,.0f} VND")
+        c.drawString(10*cm, y_position, "TỔNG CỘNG:")
+        # Format with space between number and currency and increase spacing
+        formatted_total = f"{total_amount:,.0f} VND"
+        c.drawRightString(19*cm, y_position, formatted_total)
         
         # Thank you note - Increased font size
         bottom_margin = 2*cm  # Distance from the bottom of the page
