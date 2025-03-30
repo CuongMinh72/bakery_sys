@@ -674,17 +674,17 @@ def generate_invoice_content(invoice_id, order_id, as_pdf=False):
             c.setFont("Helvetica", 20)
             
         # Move labels more to the left and values more to the right to create space
-        c.drawString(9*cm, y_position, "Tổng sản phẩm:")
+        c.drawString(8*cm, y_position, "Tổng sản phẩm:")
         # Format with space between number and currency
-        formatted_amount = f"{order_data['total_amount']:,.0f}  VND"  # Added extra space before VND
-        c.drawRightString(19*cm, y_position, formatted_amount)
+        c.drawRightString(17*cm, y_position, f"{order_data['total_amount']:,.0f}")
+        c.drawString(17.5*cm, y_position, "VND")  # Separated currency to prevent running together
         
         # Shipping fee - Increased spacing
         y_position -= 1.2*cm  # Increased spacing
-        c.drawString(9*cm, y_position, "Phí vận chuyển:")
+        c.drawString(8*cm, y_position, "Phí vận chuyển:")
         # Format with space between number and currency
-        formatted_shipping = f"{shipping_fee:,.0f}  VND"  # Added extra space before VND
-        c.drawRightString(19*cm, y_position, formatted_shipping)
+        c.drawRightString(17*cm, y_position, f"{shipping_fee:,.0f}")
+        c.drawString(17.5*cm, y_position, "VND")  # Separated currency
         
         # Final total with shipping - Increased font size and better positioning
         y_position -= 1.5*cm  # Increased spacing
@@ -696,10 +696,10 @@ def generate_invoice_content(invoice_id, order_id, as_pdf=False):
         else:
             c.setFont("Helvetica-Bold", 24)
             
-        c.drawString(9*cm, y_position, "TỔNG CỘNG:")
-        # Format with increased space between number and currency
-        formatted_total = f"{total_amount:,.0f}  VND"  # Added extra space before VND
-        c.drawRightString(19*cm, y_position, formatted_total)
+        c.drawString(8*cm, y_position, "TỔNG CỘNG:")
+        # Draw number and currency separately to prevent running together
+        c.drawRightString(17*cm, y_position, f"{total_amount:,.0f}")
+        c.drawString(17.5*cm, y_position, "VND")
         
         # Thank you note - Increased font size
         bottom_margin = 2*cm  # Distance from the bottom of the page
