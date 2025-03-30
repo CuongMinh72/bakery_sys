@@ -413,7 +413,7 @@ def update_income(order_id):
         
         st.session_state.income = pd.concat([st.session_state.income, new_row], ignore_index=True)
 
-# Function to generate invoice content
+# Function to generate invoice content with larger font and better spacing for printing
 def generate_invoice_content(invoice_id, order_id, as_pdf=False):
     """Generate invoice content either as text or PDF"""
     order_data = st.session_state.orders[st.session_state.orders['order_id'] == order_id].iloc[0]
@@ -470,9 +470,9 @@ def generate_invoice_content(invoice_id, order_id, as_pdf=False):
         
         return invoice_content
     else:
-        # PDF version without invoice number
+        # PDF version with larger text and better layout for printing
         buffer = io.BytesIO()
-        width, height = A4
+        width, height = A4  # Still using A4 but will increase font sizes and spacing
         
         # Create the PDF
         c = canvas.Canvas(buffer, pagesize=A4)
@@ -480,7 +480,30 @@ def generate_invoice_content(invoice_id, order_id, as_pdf=False):
         # Set up font for Vietnamese
         font_name = setup_vietnamese_font()
         
-        # Title section - Handle font situations carefully
+        # Title section - Increased font size
+        if font_name == 'Roboto':
+            try:
+                c.setFont("Roboto-Bold", 26)  # Increased from 22 to 26
+            except:
+                c.setFont("Helvetica-Bold", 26)
+        else:
+            c.setFont("Helvetica-Bold", 26)
+            
+        c.drawCentredString(width/2, height - 2*cm, "THUXUAN CAKE WORKSHOP & STUDIO")
+        
+        # Add store address and phone - Increased font size
+        if font_name == 'Roboto':
+            try:
+                c.setFont("Roboto", 14)  # Increased from 12 to 14
+            except:
+                c.setFont("Helvetica", 14)
+        else:
+            c.setFont("Helvetica", 14)
+        
+        c.drawCentredString(width/2, height - 2.7*cm, store_address)
+        c.drawCentredString(width/2, height - 3.4*cm, store_phone)
+        
+        # Invoice header - Increased font size
         if font_name == 'Roboto':
             try:
                 c.setFont("Roboto-Bold", 22)  # Increased from 18 to 22
@@ -489,55 +512,44 @@ def generate_invoice_content(invoice_id, order_id, as_pdf=False):
         else:
             c.setFont("Helvetica-Bold", 22)
             
-        c.drawCentredString(width/2, height - 2*cm, "THUXUAN CAKE WORKSHOP & STUDIO")
+        c.drawCentredString(width/2, height - 4.6*cm, "HÓA ĐƠN BÁN HÀNG")
         
-        # Add store address and phone
+        # Order details - Increased font size and spacing
         if font_name == 'Roboto':
             try:
-                c.setFont("Roboto", 12)  # Increased from 10 to 12
+                c.setFont("Roboto", 16)  # Increased from 13 to 16
             except:
-                c.setFont("Helvetica", 12)
+                c.setFont("Helvetica", 16)
         else:
-            c.setFont("Helvetica", 12)
+            c.setFont("Helvetica", 16)
+            
+        y_position = height - 6*cm  # Increased spacing
+        c.drawString(2*cm, y_position, f"Ngày: {order_data['date']}")
+        y_position -= 0.9*cm  # Increased spacing
+        c.drawString(2*cm, y_position, f"Đơn hàng #: {order_id}")
         
-        c.drawCentredString(width/2, height - 2.5*cm, store_address)
-        c.drawCentredString(width/2, height - 3*cm, store_phone)
+        # Customer details - Increased spacing
+        y_position -= 1.3*cm  # Increased spacing
+        c.drawString(2*cm, y_position, f"Khách hàng: {order_data['customer_name']}")
+        y_position -= 0.9*cm  # Increased spacing
+        c.drawString(2*cm, y_position, f"Điện thoại: {order_data['customer_phone']}")
+        y_position -= 0.9*cm  # Increased spacing
+        c.drawString(2*cm, y_position, f"Địa chỉ: {customer_address}")
         
-        # Invoice header
+        # Items header - Increased font size and spacing
+        y_position -= 1.5*cm  # Increased spacing
         if font_name == 'Roboto':
             try:
-                c.setFont("Roboto-Bold", 18)  # Increased from 16 to 18
+                c.setFont("Roboto-Bold", 18)  # Increased from 14 to 18
             except:
                 c.setFont("Helvetica-Bold", 18)
         else:
             c.setFont("Helvetica-Bold", 18)
             
-        c.drawCentredString(width/2, height - 4*cm, "HÓA ĐƠN BÁN HÀNG")
+        c.drawString(2*cm, y_position, "CÁC MẶT HÀNG:")
         
-        # Order details
-        if font_name == 'Roboto':
-            try:
-                c.setFont("Roboto", 13)  # Increased from 11 to 13
-            except:
-                c.setFont("Helvetica", 13)
-        else:
-            c.setFont("Helvetica", 13)
-            
-        y_position = height - 5*cm
-        c.drawString(2*cm, y_position, f"Ngày: {order_data['date']}")
-        y_position -= 0.7*cm  # Slightly increased spacing
-        c.drawString(2*cm, y_position, f"Đơn hàng #: {order_id}")
-        
-        # Customer details
-        y_position -= 1.1*cm  # Slightly increased spacing
-        c.drawString(2*cm, y_position, f"Khách hàng: {order_data['customer_name']}")
-        y_position -= 0.7*cm  # Slightly increased spacing
-        c.drawString(2*cm, y_position, f"Điện thoại: {order_data['customer_phone']}")
-        y_position -= 0.7*cm  # Slightly increased spacing
-        c.drawString(2*cm, y_position, f"Địa chỉ: {customer_address}")
-        
-        # Items header
-        y_position -= 1.3*cm  # Slightly increased spacing
+        # Table headers - Increased font size and spacing
+        y_position -= 1.2*cm  # Increased spacing
         if font_name == 'Roboto':
             try:
                 c.setFont("Roboto-Bold", 14)  # Increased from 12 to 14
@@ -546,36 +558,26 @@ def generate_invoice_content(invoice_id, order_id, as_pdf=False):
         else:
             c.setFont("Helvetica-Bold", 14)
             
-        c.drawString(2*cm, y_position, "CÁC MẶT HÀNG:")
-        
-        # Table headers
-        y_position -= 0.9*cm  # Slightly increased spacing
-        if font_name == 'Roboto':
-            try:
-                c.setFont("Roboto-Bold", 12)  # Increased from 10 to 12
-            except:
-                c.setFont("Helvetica-Bold", 12)
-        else:
-            c.setFont("Helvetica-Bold", 12)
-            
         c.drawString(2*cm, y_position, "Sản phẩm")
         c.drawString(10*cm, y_position, "Số lượng")
         c.drawString(12.5*cm, y_position, "Đơn giá (VND)")
         c.drawString(16.5*cm, y_position, "Thành tiền (VND)")
         
-        # Header line
-        y_position -= 0.3*cm  # Slightly increased spacing
+        # Header line - Thicker line (0.5 points to 1.5 points)
+        y_position -= 0.4*cm  # Slightly increased spacing
+        c.setLineWidth(1.5)  # Make the line thicker for better visibility when printed
         c.line(2*cm, y_position, 19*cm, y_position)
+        c.setLineWidth(1)  # Reset line width
         
-        # Item rows
-        y_position -= 0.8*cm  # Slightly increased spacing
+        # Item rows - Increased font size and spacing
+        y_position -= 1*cm  # Increased spacing
         if font_name == 'Roboto':
             try:
-                c.setFont("Roboto", 12)  # Increased from 10 to 12
+                c.setFont("Roboto", 14)  # Increased from 12 to 14
             except:
-                c.setFont("Helvetica", 12)
+                c.setFont("Helvetica", 14)
         else:
-            c.setFont("Helvetica", 12)
+            c.setFont("Helvetica", 14)
         
         for _, item in order_items.iterrows():
             # For Vietnamese product names, draw without accents if font support is an issue
@@ -583,124 +585,126 @@ def generate_invoice_content(invoice_id, order_id, as_pdf=False):
             c.drawRightString(11*cm, y_position, str(item['quantity']))
             c.drawRightString(15*cm, y_position, f"{item['price']:,.0f}")
             c.drawRightString(19*cm, y_position, f"{item['subtotal']:,.0f}")
-            y_position -= 0.8*cm  # Slightly increased spacing
+            y_position -= 1*cm  # Increased spacing
             
             # Check if we need to start a new page
-            if y_position < 3*cm:
+            if y_position < 4*cm:  # Increased margin to ensure content fits
                 c.showPage()
                 if font_name == 'Roboto':
                     try:
-                        c.setFont("Roboto", 12)  # Increased from 10 to 12
+                        c.setFont("Roboto", 14)  # Increased from 12 to 14
                     except:
-                        c.setFont("Helvetica", 12)
+                        c.setFont("Helvetica", 14)
                 else:
-                    c.setFont("Helvetica", 12)
+                    c.setFont("Helvetica", 14)
                 y_position = height - 3*cm
         
-        # Total line
+        # Total line - Thicker line
+        c.setLineWidth(1.5)  # Make the line thicker
         c.line(2*cm, y_position, 19*cm, y_position)
-        y_position -= 0.8*cm  # Slightly increased spacing
+        c.setLineWidth(1)  # Reset line width
+        y_position -= 1*cm  # Increased spacing
         
-        # Static QR code image
-        qr_y_position = y_position - 4*cm  # Position for QR code
+        # Static QR code image - Increased size and better positioning
+        qr_y_position = y_position - 4.5*cm  # Adjusted position for QR code
         
         try:
             # Path to your static QR code image - replace with the actual path to your QR code image
             qr_image_path = "C:\\Users\\Computer\\PycharmProjects\\bakery_sys\\assets\\qr_cua_xuan.png"
             
-            # Place QR code image on PDF
-            c.drawImage(qr_image_path, 2*cm, qr_y_position, width=4*cm, height=4*cm)
+            # Place QR code image on PDF - Increased size
+            c.drawImage(qr_image_path, 2*cm, qr_y_position, width=5*cm, height=5*cm)  # Increased size
             
-            # Add text below QR code
+            # Add text below QR code - Increased font size
             if font_name == 'Roboto':
                 try:
-                    c.setFont("Roboto-Bold", 10)
+                    c.setFont("Roboto-Bold", 12)  # Increased from 10 to 12
                 except:
-                    c.setFont("Helvetica-Bold", 10)
+                    c.setFont("Helvetica-Bold", 12)
             else:
-                c.setFont("Helvetica-Bold", 10)
+                c.setFont("Helvetica-Bold", 12)
                 
-            c.drawCentredString(4*cm, qr_y_position - 0.5*cm, "Quét để thanh toán")
+            c.drawCentredString(4.5*cm, qr_y_position - 0.6*cm, "Quét để thanh toán")  # Adjusted position
 
-            # Add account number line (0.8cm below the previous text)
+            # Add account number line - Increased font size
             if font_name == 'Roboto':
                 try:
-                    c.setFont("Roboto", 9)
+                    c.setFont("Roboto", 11)  # Increased from 9 to 11
                 except:
-                    c.setFont("Helvetica", 9)
+                    c.setFont("Helvetica", 11)
             else:
-                c.setFont("Helvetica", 9)
+                c.setFont("Helvetica", 11)
 
-            # You can replace this with your actual account number
+            # Account number
             account_number = "19037177788018"
-            c.drawCentredString(4*cm, qr_y_position - 1.3*cm, f"STK: {account_number}")
+            c.drawCentredString(4.5*cm, qr_y_position - 1.5*cm, f"STK: {account_number}")  # Adjusted position
 
-            # Add account name line (0.5cm below the account number)
+            # Add account name line - Increased font size
             if font_name == 'Roboto':
                 try:
-                    c.setFont("Roboto", 9)
+                    c.setFont("Roboto", 11)  # Increased from 9 to 11
                 except:
-                    c.setFont("Helvetica", 9)
+                    c.setFont("Helvetica", 11)
             else:
-                c.setFont("Helvetica", 9)
+                c.setFont("Helvetica", 11)
 
-            # You can replace this with your actual account name
+            # Account name
             account_name = "NGUYEN THU XUAN"
-            c.drawCentredString(4*cm, qr_y_position - 1.8*cm, f"Tên: {account_name}")
+            c.drawCentredString(4.5*cm, qr_y_position - 2.1*cm, f"Tên: {account_name}")  # Adjusted position
             
         except Exception as e:
             # If QR code image insertion fails, just add a note
             if font_name == 'Roboto':
                 try:
-                    c.setFont("Roboto", 10)  # Increased from 8 to 10
+                    c.setFont("Roboto", 12)  # Increased from 10 to 12
                 except:
-                    c.setFont("Helvetica", 10)
+                    c.setFont("Helvetica", 12)
             else:
-                c.setFont("Helvetica", 10)
+                c.setFont("Helvetica", 12)
                 
             c.drawString(2*cm, qr_y_position + 2*cm, "Thanh toán chuyển khoản")
         
-        # Subtotal amount
+        # Subtotal amount - Increased font size and better positioning
         if font_name == 'Roboto':
             try:
-                c.setFont("Roboto", 13)  # Increased from 10 to 13
+                c.setFont("Roboto", 16)  # Increased from 13 to 16
             except:
-                c.setFont("Helvetica", 13)
+                c.setFont("Helvetica", 16)
         else:
-            c.setFont("Helvetica", 13)
+            c.setFont("Helvetica", 16)
             
-        c.drawString(12.5*cm, y_position, "Tổng sản phẩm:")
+        c.drawString(12*cm, y_position, "Tổng sản phẩm:")
         c.drawRightString(19*cm, y_position, f"{order_data['total_amount']:,.0f} VND")
         
-        # Shipping fee
-        y_position -= 0.8*cm  # Slightly increased spacing
-        c.drawString(12.5*cm, y_position, "Phí vận chuyển:")
+        # Shipping fee - Increased spacing
+        y_position -= 1*cm  # Increased spacing
+        c.drawString(12*cm, y_position, "Phí vận chuyển:")
         c.drawRightString(19*cm, y_position, f"{shipping_fee:,.0f} VND")
         
-        # Final total with shipping
-        y_position -= 0.8*cm  # Slightly increased spacing
+        # Final total with shipping - Increased font size and better positioning
+        y_position -= 1.2*cm  # Increased spacing
         if font_name == 'Roboto':
             try:
-                c.setFont("Roboto-Bold", 14)  # Increased from 10 to 14
+                c.setFont("Roboto-Bold", 18)  # Increased from 14 to 18
             except:
-                c.setFont("Helvetica-Bold", 14)
+                c.setFont("Helvetica-Bold", 18)
         else:
-            c.setFont("Helvetica-Bold", 14)
+            c.setFont("Helvetica-Bold", 18)
             
-        c.drawString(12.5*cm, y_position, "TỔNG CỘNG:")
+        c.drawString(12*cm, y_position, "TỔNG CỘNG:")
         c.drawRightString(19*cm, y_position, f"{total_amount:,.0f} VND")
         
-        # Thank you note
+        # Thank you note - Increased font size
         bottom_margin = 2*cm  # Distance from the bottom of the page
-        thank_you_y_position = bottom_margin  # Position from the bottom
+        thank_you_y_position = bottom_margin + 0.5*cm  # Slightly higher position from the bottom
 
         if font_name == 'Roboto':
             try:
-                c.setFont("Roboto", 13)  # Increased from 11 to 13
+                c.setFont("Roboto", 16)  # Increased from 13 to 16
             except:
-                c.setFont("Helvetica", 13)
+                c.setFont("Helvetica", 16)
         else:
-            c.setFont("Helvetica", 13)
+            c.setFont("Helvetica", 16)
             
         c.drawCentredString(width/2, thank_you_y_position, "Cảm ơn quý khách!")
         
