@@ -413,9 +413,8 @@ def update_income(order_id):
         
         st.session_state.income = pd.concat([st.session_state.income, new_row], ignore_index=True)
 
-# Function to generate invoice content with even larger font and better spacing for printing
 def generate_invoice_content(invoice_id, order_id, as_pdf=False):
-    """Generate invoice content either as text or PDF"""
+    """Generate receipt-style invoice content either as text or PDF"""
     order_data = st.session_state.orders[st.session_state.orders['order_id'] == order_id].iloc[0]
     order_items = st.session_state.order_items[st.session_state.order_items['order_id'] == order_id]
     
@@ -426,301 +425,323 @@ def generate_invoice_content(invoice_id, order_id, as_pdf=False):
         how='left'
     )
     
-    # Get shipping fee and customer address from order data (will be 0 if not specified)
+    # Get shipping fee and customer address from order data
     shipping_fee = order_data.get('shipping_fee', 0)
     customer_address = order_data.get('customer_address', '')
     
     # Calculate total amount
     total_amount = order_data['total_amount'] + shipping_fee
     
-    # Store address and phone information
-    store_address = "Đ/C: Số 10 ngõ 298 Đê La Thành, Đống Đa, Hà Nội"
+    # Store information
+    store_name = "THUXUAN CAKE"
+    store_address = "Số 10 ngõ 298 Đê La Thành, Đống Đa, Hà Nội"
     store_phone = "ĐT: 0988 159 268"
     
     if not as_pdf:
-        # Text version without invoice number
+        # Text version (plain text receipt style)
         invoice_content = f"""
-        ThuXuan Cake
+        {store_name}
         {store_address}
         {store_phone}
+        -----------------------------------
         
-        HÓA ĐƠN 
-        -----------------------------------------
+        Hóa đơn #: {invoice_id}
         Ngày: {order_data['date']}
-        Đơn hàng #: {order_id}
+        Giờ: {datetime.datetime.now().strftime('%H:%M')}
+        -----------------------------------
         
-        Khách hàng: {order_data['customer_name']}
-        Điện thoại: {order_data['customer_phone']}
-        Địa chỉ: {customer_address}
-        
-        CÁC MẶT HÀNG:
+        Mặt hàng x SL{' '*15}Đơn giá
         """
         
         for _, item in order_items.iterrows():
-            invoice_content += f"\n{item['name']} x {item['quantity']} @ {item['price']:,.0f} VND = {item['subtotal']:,.0f} VND"
+            # Format item line with right-aligned price
+            name_qty = f"{item['name']} x {item['quantity']}"
+            price = f"{item['price']:,.0f}"
+            spaces = ' ' * max(1, 30 - len(name_qty))
+            invoice_content += f"\n{name_qty}{spaces}{price}"
         
         invoice_content += f"""
-        -----------------------------------------
-        Tổng sản phẩm: {order_data['total_amount']:,.0f} VND
-        Phí vận chuyển: {shipping_fee:,.0f} VND
-        TỔNG CỘNG: {total_amount:,.0f} VND
+        -----------------------------------
+        Tổng sản phẩm:{' '*15}{order_data['total_amount']:,.0f}
+        Phí vận chuyển:{' '*14}{shipping_fee:,.0f}
+        -----------------------------------
+        TỔNG CỘNG:{' '*18}{total_amount:,.0f}
+        
+        Phương thức thanh toán: Tiền mặt
         
         Cảm ơn quý khách!
+        Hẹn gặp lại quý khách.
         """
         
         return invoice_content
+    
     else:
-        # PDF version with much larger text and better layout for printing
+        # PDF version (thermal receipt style)
         buffer = io.BytesIO()
-        width, height = A4  # Still using A4 but will increase font sizes and spacing
         
-        # Create the PDF
-        c = canvas.Canvas(buffer, pagesize=A4)
+        # Create a narrower page size like a receipt
+        receipt_width = 8*cm  # Width similar to thermal receipt
+        receipt_height = 20*cm  # Height will be determined dynamically
+        
+        # Create the PDF with initial size - we'll adjust later
+        c = canvas.Canvas(buffer, pagesize=(receipt_width, receipt_height))
         
         # Set up font for Vietnamese
         font_name = setup_vietnamese_font()
         
-        # Title section - Significantly increased font size
+        # Start position for drawing
+        y_position = receipt_height - 1*cm
+        
+        # Store header
         if font_name == 'Roboto':
             try:
-                c.setFont("Roboto-Bold", 32)  # Increased from 26 to 32
+                c.setFont("Roboto-Bold", 12)
             except:
-                c.setFont("Helvetica-Bold", 32)
+                c.setFont("Helvetica-Bold", 12)
         else:
-            c.setFont("Helvetica-Bold", 32)
-            
-        c.drawCentredString(width/2, height - 2.2*cm, "THUXUAN CAKE WORKSHOP & STUDIO")
+            c.setFont("Helvetica-Bold", 12)
         
-        # Add store address and phone - Increased font size
+        # Center the header text
+        c.drawCentredString(receipt_width/2, y_position, store_name)
+        y_position -= 0.5*cm
+        
+        # Store address and phone - smaller font
         if font_name == 'Roboto':
             try:
-                c.setFont("Roboto", 18)  # Increased from 14 to 18
+                c.setFont("Roboto", 8)
             except:
-                c.setFont("Helvetica", 18)
+                c.setFont("Helvetica", 8)
         else:
-            c.setFont("Helvetica", 18)
+            c.setFont("Helvetica", 8)
         
-        c.drawCentredString(width/2, height - 3.0*cm, store_address)
-        c.drawCentredString(width/2, height - 3.8*cm, store_phone)
+        # Wrap text for address
+        address_text = c.beginText(0.5*cm, y_position)
+        address_text.setFont(font_name if font_name == 'Roboto' else "Helvetica", 8)
+        wrapped_address = textwrap.fill(store_address, width=40)
+        for line in wrapped_address.split('\n'):
+            address_text.textLine(line)
+        c.drawText(address_text)
         
-        # Invoice header - Increased font size
+        # Adjust y position based on number of address lines
+        y_position -= (0.3*cm * len(wrapped_address.split('\n')))
+        
+        # Phone
+        c.drawCentredString(receipt_width/2, y_position, store_phone)
+        y_position -= 0.5*cm
+        
+        # Draw dashed line
+        c.setDash(3, 3)  # 3 points on, 3 points off
+        c.line(0.5*cm, y_position, receipt_width-0.5*cm, y_position)
+        c.setDash(1, 0)  # Reset dash pattern
+        y_position -= 0.7*cm
+        
+        # Invoice/Order details
         if font_name == 'Roboto':
             try:
-                c.setFont("Roboto-Bold", 28)  # Increased from 22 to 28
+                c.setFont("Roboto-Bold", 10)
             except:
-                c.setFont("Helvetica-Bold", 28)
+                c.setFont("Helvetica-Bold", 10)
         else:
-            c.setFont("Helvetica-Bold", 28)
-            
-        c.drawCentredString(width/2, height - 5.2*cm, "HÓA ĐƠN BÁN HÀNG")
+            c.setFont("Helvetica-Bold", 10)
         
-        # Order details - Increased font size and spacing
+        c.drawString(0.5*cm, y_position, f"Hóa đơn #: {invoice_id}")
+        y_position -= 0.4*cm
+        
+        # Date and time
+        current_time = datetime.datetime.now().strftime('%H:%M')
         if font_name == 'Roboto':
             try:
-                c.setFont("Roboto", 20)  # Increased from 16 to 20
+                c.setFont("Roboto", 9)
             except:
-                c.setFont("Helvetica", 20)
+                c.setFont("Helvetica", 9)
         else:
-            c.setFont("Helvetica", 20)
-            
-        y_position = height - 6.8*cm  # Increased spacing
-        c.drawString(2*cm, y_position, f"Ngày: {order_data['date']}")
-        y_position -= 1.1*cm  # Increased spacing
-        c.drawString(2*cm, y_position, f"Đơn hàng #: {order_id}")
+            c.setFont("Helvetica", 9)
         
-        # Customer details - Increased spacing
-        y_position -= 1.5*cm  # Increased spacing
-        c.drawString(2*cm, y_position, f"Khách hàng: {order_data['customer_name']}")
-        y_position -= 1.1*cm  # Increased spacing
-        c.drawString(2*cm, y_position, f"Điện thoại: {order_data['customer_phone']}")
-        y_position -= 1.1*cm  # Increased spacing
-        c.drawString(2*cm, y_position, f"Địa chỉ: {customer_address}")
+        c.drawString(0.5*cm, y_position, f"Ngày: {order_data['date']} {current_time}")
+        y_position -= 0.7*cm
         
-        # Items header - Increased font size and spacing
-        y_position -= 1.8*cm  # Increased spacing
+        # Draw dashed line
+        c.setDash(3, 3)
+        c.line(0.5*cm, y_position, receipt_width-0.5*cm, y_position)
+        c.setDash(1, 0)
+        y_position -= 0.7*cm
+        
+        # Column headers for items
         if font_name == 'Roboto':
             try:
-                c.setFont("Roboto-Bold", 22)  # Increased from 18 to 22
+                c.setFont("Roboto-Bold", 9)
             except:
-                c.setFont("Helvetica-Bold", 22)
+                c.setFont("Helvetica-Bold", 9)
         else:
-            c.setFont("Helvetica-Bold", 22)
-            
-        c.drawString(2*cm, y_position, "CÁC MẶT HÀNG:")
+            c.setFont("Helvetica-Bold", 9)
         
-        # Table headers - Increased font size and spacing
-        y_position -= 1.5*cm  # Increased spacing
+        c.drawString(0.5*cm, y_position, "Mặt hàng x SL")
+        c.drawRightString(receipt_width-0.5*cm, y_position, "Đơn giá")
+        y_position -= 0.4*cm
+        
+        # Items
         if font_name == 'Roboto':
             try:
-                c.setFont("Roboto-Bold", 18)  # Increased from 14 to 18
+                c.setFont("Roboto", 9)
             except:
-                c.setFont("Helvetica-Bold", 18)
+                c.setFont("Helvetica", 9)
         else:
-            c.setFont("Helvetica-Bold", 18)
-            
-        c.drawString(2*cm, y_position, "Sản phẩm")
-        c.drawString(10*cm, y_position, "Số lượng")
-        c.drawString(12.5*cm, y_position, "Đơn giá (VND)")
-        c.drawString(16.5*cm, y_position, "Thành tiền (VND)")
+            c.setFont("Helvetica", 9)
         
-        # Header line - Thicker line (0.5 points to 2.0 points)
-        y_position -= 0.5*cm  # Slightly increased spacing
-        c.setLineWidth(2.0)  # Make the line even thicker for better visibility when printed
-        c.line(2*cm, y_position, 19*cm, y_position)
-        c.setLineWidth(1)  # Reset line width
-        
-        # Item rows - Increased font size and spacing
-        y_position -= 1.2*cm  # Increased spacing
-        if font_name == 'Roboto':
-            try:
-                c.setFont("Roboto", 18)  # Increased from 14 to 18
-            except:
-                c.setFont("Helvetica", 18)
-        else:
-            c.setFont("Helvetica", 18)
+        # Keep track of required height
+        required_height = receipt_height  # Start with initial height
         
         for _, item in order_items.iterrows():
-            # For Vietnamese product names, draw without accents if font support is an issue
-            c.drawString(2*cm, y_position, item['name'])
-            c.drawRightString(11*cm, y_position, str(item['quantity']))
-            c.drawRightString(15*cm, y_position, f"{item['price']:,.0f}")
-            c.drawRightString(19*cm, y_position, f"{item['subtotal']:,.0f}")
-            y_position -= 1.2*cm  # Increased spacing
+            # Item description with quantity
+            item_text = f"{item['name']} x {item['quantity']}"
             
-            # Check if we need to start a new page
-            if y_position < 5*cm:  # Increased margin to ensure content fits
-                c.showPage()
-                if font_name == 'Roboto':
-                    try:
-                        c.setFont("Roboto", 18)  # Maintain consistent font size on new page
-                    except:
-                        c.setFont("Helvetica", 18)
-                else:
-                    c.setFont("Helvetica", 18)
-                y_position = height - 3*cm
+            # Check if text is too long for the receipt width
+            if c.stringWidth(item_text, font_name if font_name == 'Roboto' else "Helvetica", 9) > (receipt_width - 3*cm):
+                # Wrap the item text
+                text_obj = c.beginText(0.5*cm, y_position)
+                text_obj.setFont(font_name if font_name == 'Roboto' else "Helvetica", 9)
+                wrapped_text = textwrap.fill(item_text, width=25)
+                for line in wrapped_text.split('\n'):
+                    text_obj.textLine(line)
+                c.drawText(text_obj)
+                
+                # Price on the same line as the first line of the wrapped text
+                c.drawRightString(receipt_width-0.5*cm, y_position, f"{item['price']:,.0f}")
+                
+                # Adjust position based on wrapped text lines
+                y_position -= (0.3*cm * len(wrapped_text.split('\n')))
+            else:
+                # Single line for item and price
+                c.drawString(0.5*cm, y_position, item_text)
+                c.drawRightString(receipt_width-0.5*cm, y_position, f"{item['price']:,.0f}")
+                y_position -= 0.4*cm
+            
+            # Update required height if needed
+            required_height = max(required_height, receipt_height - y_position + 3*cm)
         
-        # Total line - Thicker line
-        c.setLineWidth(2.0)  # Make the line even thicker
-        c.line(2*cm, y_position, 19*cm, y_position)
-        c.setLineWidth(1)  # Reset line width
-        y_position -= 1.2*cm  # Increased spacing
+        # Draw dashed line
+        c.setDash(3, 3)
+        c.line(0.5*cm, y_position, receipt_width-0.5*cm, y_position)
+        c.setDash(1, 0)
+        y_position -= 0.7*cm
         
-        # Static QR code image - Increased size and better positioning
-        qr_y_position = y_position - 4.5*cm  # Adjusted position for QR code
+        # Totals
+        if font_name == 'Roboto':
+            try:
+                c.setFont("Roboto", 9)
+            except:
+                c.setFont("Helvetica", 9)
+        else:
+            c.setFont("Helvetica", 9)
         
+        c.drawString(0.5*cm, y_position, "Tổng sản phẩm:")
+        c.drawRightString(receipt_width-0.5*cm, y_position, f"{order_data['total_amount']:,.0f}")
+        y_position -= 0.4*cm
+        
+        c.drawString(0.5*cm, y_position, "Phí vận chuyển:")
+        c.drawRightString(receipt_width-0.5*cm, y_position, f"{shipping_fee:,.0f}")
+        y_position -= 0.7*cm
+        
+        # Draw dashed line
+        c.setDash(3, 3)
+        c.line(0.5*cm, y_position, receipt_width-0.5*cm, y_position)
+        c.setDash(1, 0)
+        y_position -= 0.7*cm
+        
+        # Final total
+        if font_name == 'Roboto':
+            try:
+                c.setFont("Roboto-Bold", 10)
+            except:
+                c.setFont("Helvetica-Bold", 10)
+        else:
+            c.setFont("Helvetica-Bold", 10)
+        
+        c.drawString(0.5*cm, y_position, "TỔNG CỘNG:")
+        c.drawRightString(receipt_width-0.5*cm, y_position, f"{total_amount:,.0f}")
+        y_position -= 0.7*cm
+        
+        # Payment method
+        if font_name == 'Roboto':
+            try:
+                c.setFont("Roboto", 9)
+            except:
+                c.setFont("Helvetica", 9)
+        else:
+            c.setFont("Helvetica", 9)
+        
+        c.drawString(0.5*cm, y_position, "Phương thức thanh toán: Tiền mặt")
+        y_position -= 1*cm
+        
+        # QR Code (smaller size for receipt)
         try:
-            # Path to your static QR code image - replace with the actual path to your QR code image
             qr_image_path = "C:\\Users\\Computer\\PycharmProjects\\bakery_sys\\assets\\qr_cua_xuan.png"
+            qr_size = 3*cm
+            c.drawImage(qr_image_path, (receipt_width-qr_size)/2, y_position-qr_size, width=qr_size, height=qr_size)
+            y_position -= (qr_size + 0.5*cm)
             
-            # Place QR code image on PDF - Increased size
-            c.drawImage(qr_image_path, 2*cm, qr_y_position, width=5*cm, height=5*cm)  # Increased size
-            
-            # Add text below QR code - Increased font size
+            # Account details below QR code
             if font_name == 'Roboto':
                 try:
-                    c.setFont("Roboto-Bold", 12)  # Increased from 10 to 12
+                    c.setFont("Roboto", 8)
                 except:
-                    c.setFont("Helvetica-Bold", 12)
+                    c.setFont("Helvetica", 8)
             else:
-                c.setFont("Helvetica-Bold", 12)
-                
-            c.drawCentredString(4.5*cm, qr_y_position - 0.6*cm, "Quét để thanh toán")  # Adjusted position
-
-            # Add account number line - Increased font size
-            if font_name == 'Roboto':
-                try:
-                    c.setFont("Roboto", 11)  # Increased from 9 to 11
-                except:
-                    c.setFont("Helvetica", 11)
-            else:
-                c.setFont("Helvetica", 11)
-
-            # Account number
-            account_number = "19037177788018"
-            c.drawCentredString(4.5*cm, qr_y_position - 1.5*cm, f"STK: {account_number}")  # Adjusted position
-
-            # Add account name line - Increased font size
-            if font_name == 'Roboto':
-                try:
-                    c.setFont("Roboto", 11)  # Increased from 9 to 11
-                except:
-                    c.setFont("Helvetica", 11)
-            else:
-                c.setFont("Helvetica", 11)
-
-            # Account name
-            account_name = "NGUYEN THU XUAN"
-            c.drawCentredString(4.5*cm, qr_y_position - 2.1*cm, f"Tên: {account_name}")  # Adjusted position
+                c.setFont("Helvetica", 8)
             
+            # Center account details
+            c.drawCentredString(receipt_width/2, y_position, "STK: 19037177788018")
+            y_position -= 0.3*cm
+            c.drawCentredString(receipt_width/2, y_position, "Tên: NGUYEN THU XUAN")
+            y_position -= 0.7*cm
         except Exception as e:
-            # If QR code image insertion fails, just add a note
-            if font_name == 'Roboto':
-                try:
-                    c.setFont("Roboto", 12)  # Increased from 10 to 12
-                except:
-                    c.setFont("Helvetica", 12)
-            else:
-                c.setFont("Helvetica", 12)
-                
-            c.drawString(2*cm, qr_y_position + 2*cm, "Thanh toán chuyển khoản")
+            # If QR code fails, just move on
+            pass
         
-        # Subtotal amount - Significantly increased font size and better positioning
+        # Thank you note
         if font_name == 'Roboto':
             try:
-                c.setFont("Roboto", 20)  # Increased from 16 to 20
+                c.setFont("Roboto-Bold", 9)
             except:
-                c.setFont("Helvetica", 20)
+                c.setFont("Helvetica-Bold", 9)
         else:
-            c.setFont("Helvetica", 20)
-            
-        # Move labels more to the left and values more to the right to create space
-        c.drawString(8*cm, y_position, "Tổng sản phẩm:")
-        # Format with space between number and currency
-        c.drawRightString(17*cm, y_position, f"{order_data['total_amount']:,.0f}")
-        c.drawString(17.5*cm, y_position, "VND")  # Separated currency to prevent running together
+            c.setFont("Helvetica-Bold", 9)
         
-        # Shipping fee - Increased spacing
-        y_position -= 1.2*cm  # Increased spacing
-        c.drawString(8*cm, y_position, "Phí vận chuyển:")
-        # Format with space between number and currency
-        c.drawRightString(17*cm, y_position, f"{shipping_fee:,.0f}")
-        c.drawString(17.5*cm, y_position, "VND")  # Separated currency
+        c.drawCentredString(receipt_width/2, y_position, "Cảm ơn quý khách!")
+        y_position -= 0.4*cm
         
-        # Final total with shipping - Increased font size and better positioning
-        y_position -= 1.5*cm  # Increased spacing
         if font_name == 'Roboto':
             try:
-                c.setFont("Roboto-Bold", 24)  # Increased from 18 to 24
+                c.setFont("Roboto", 8)
             except:
-                c.setFont("Helvetica-Bold", 24)
+                c.setFont("Helvetica", 8)
         else:
-            c.setFont("Helvetica-Bold", 24)
-            
-        c.drawString(8*cm, y_position, "TỔNG CỘNG:")
-        # Draw number and currency separately to prevent running together
-        c.drawRightString(17*cm, y_position, f"{total_amount:,.0f}")
-        c.drawString(17.5*cm, y_position, "VND")
+            c.setFont("Helvetica", 8)
         
-        # Thank you note - Increased font size
-        bottom_margin = 2*cm  # Distance from the bottom of the page
-        thank_you_y_position = bottom_margin + 0.5*cm  # Slightly higher position from the bottom
-
-        if font_name == 'Roboto':
-            try:
-                c.setFont("Roboto", 16)  # Increased from 13 to 16
-            except:
-                c.setFont("Helvetica", 16)
-        else:
-            c.setFont("Helvetica", 16)
-            
-        c.drawCentredString(width/2, thank_you_y_position, "Cảm ơn quý khách!")
+        c.drawCentredString(receipt_width/2, y_position, "Hẹn gặp lại quý khách.")
+        y_position -= 1*cm
+        
+        # Update required height
+        required_height = max(required_height, receipt_height - y_position + 2*cm)
+        
+        # Finish the page and adjust height
+        c.showPage()
+        
+        # Create a new PDF with the correct height
+        new_buffer = io.BytesIO()
+        new_c = canvas.Canvas(new_buffer, pagesize=(receipt_width, required_height))
+        
+        # Reuse the page we created
+        new_c._pagesize = (receipt_width, required_height)
+        new_c._pages = c._pages
         
         # Save the PDF
-        c.save()
-        pdf_data = buffer.getvalue()
+        new_c.save()
+        pdf_data = new_buffer.getvalue()
+        new_buffer.close()
         buffer.close()
         
-        return pdf_data 
+        return pdf_data
     
 def download_link(content, filename, text, is_pdf=False):
     """Generate a link to download content as a file"""
