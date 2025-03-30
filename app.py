@@ -34,36 +34,155 @@ st.set_page_config(
 def save_dataframe(df, filename):
     """Save a dataframe to a CSV file"""
     try:
-        # Use the specific directory path
+        # Use the specific directory path with absolute path
         data_dir = r"C:\\Users\\Computer\\PycharmProjects\\bakery_sys\\bakery_data"
         
         # Create data directory if it doesn't exist
         if not os.path.exists(data_dir):
             os.makedirs(data_dir)
+            print(f"Created directory: {data_dir}")
+        
+        # Normalize the filepath and make it absolute
+        filepath = os.path.abspath(os.path.join(data_dir, filename))
         
         # Save to CSV in the specified directory
-        filepath = os.path.join(data_dir, filename)
         df.to_csv(filepath, index=False)
+        print(f"Saved {len(df)} rows to {filepath}")
         return True
     except Exception as e:
         print(f"Error saving {filename}: {e}")
+        st.error(f"Failed to save {filename}: {e}")
         return False
 
 def load_dataframe(filename, default_df):
     """Load a dataframe from a CSV file or return the default if file doesn't exist"""
     try:
-        # Use the specific directory path
-        data_dir = r"C:\\Users\\Computer\\PycharmProjects\\bakery_sys\bakery_data"
-        filepath = os.path.join(data_dir, filename)
+        # Use the specific directory path with absolute path
+        data_dir = r"C:\\Users\\Computer\\PycharmProjects\\bakery_sys\\bakery_data"
+        
+        # Normalize the filepath and make it absolute
+        filepath = os.path.abspath(os.path.join(data_dir, filename))
         
         if os.path.exists(filepath):
-            return pd.read_csv(filepath)
-        return default_df
+            # Try to read the CSV file
+            df = pd.read_csv(filepath)
+            print(f"Loaded {len(df)} rows from {filepath}")
+            
+            # Verify the dataframe has content
+            if len(df) > 0:
+                return df
+            else:
+                print(f"File {filename} exists but is empty, using default")
+        else:
+            print(f"File not found: {filepath}, using default")
+        
+        # Make a copy of the default dataframe to avoid modifying the original
+        return default_df.copy()
     except Exception as e:
         print(f"Error loading {filename}: {e}")
-        return default_df
+        st.error(f"Failed to load {filename}: {e}")
+        return default_df.copy()
+
+# Add this code at the beginning of your app to initialize the data directory
+def ensure_data_directory():
+    data_dir = r"C:\\Users\\Computer\\PycharmProjects\\bakery_sys\\bakery_data"
+    if not os.path.exists(data_dir):
+        try:
+            os.makedirs(data_dir)
+            print(f"Created data directory: {data_dir}")
+        except Exception as e:
+            print(f"Failed to create data directory: {e}")
+            st.error(f"Failed to create data directory: {e}")
+
+# Call this function after importing libraries
+ensure_data_directory()
+
+# Add this debug code at the start of your app, after imports
+def check_data_files():
+    """Check if data files exist and print their details"""
+    data_dir = r"C:\\Users\\Computer\\PycharmProjects\\bakery_sys\\bakery_data"
+    if not os.path.exists(data_dir):
+        st.warning(f"Data directory does not exist: {data_dir}")
+        return
     
-# Initialize session state variables if they don't exist
+    st.write(f"Data directory exists: {data_dir}")
+    
+    files = [f for f in os.listdir(data_dir) if f.endswith('.csv')]
+    if not files:
+        st.warning("No CSV files found in data directory")
+        return
+    
+    st.write(f"Found {len(files)} CSV files:")
+    for file in files:
+        filepath = os.path.join(data_dir, file)
+        filesize = os.path.getsize(filepath)
+        st.write(f"- {file}: {filesize} bytes")
+        try:
+            df = pd.read_csv(filepath)
+            st.write(f"  Contains {len(df)} rows")
+        except Exception as e:
+            st.write(f"  Error reading file: {str(e)}")
+
+# Add a toggle to show debug information
+show_debug = st.sidebar.checkbox("Show Debug Info", value=False)
+if show_debug:
+    st.sidebar.write("### Debug Information")
+    check_data_files()
+    
+# Add an explicit function to initialize data if needed
+def initialize_data_if_needed():
+    """Initialize data files if they don't exist yet"""
+    data_dir = r"C:\\Users\\Computer\\PycharmProjects\\bakery_sys\\bakery_data"
+    
+    # List of expected files
+    expected_files = [
+        "products.csv", "materials.csv", "recipes.csv", 
+        "orders.csv", "order_items.csv", "invoices.csv", 
+        "income.csv", "material_costs.csv", "invoice_status.csv"
+    ]
+    
+    # Check if any files are missing
+    missing_files = []
+    for filename in expected_files:
+        filepath = os.path.join(data_dir, filename)
+        if not os.path.exists(filepath):
+            missing_files.append(filename)
+    
+    # If any files are missing, save the default dataframes
+    if missing_files:
+        print(f"Initializing missing data files: {', '.join(missing_files)}")
+        
+        # Save default dataframes for missing files
+        if "products.csv" in missing_files and 'products' in st.session_state:
+            save_dataframe(st.session_state.products, "products.csv")
+        
+        if "materials.csv" in missing_files and 'materials' in st.session_state:
+            save_dataframe(st.session_state.materials, "materials.csv")
+        
+        if "recipes.csv" in missing_files and 'recipes' in st.session_state:
+            save_dataframe(st.session_state.recipes, "recipes.csv")
+        
+        if "orders.csv" in missing_files and 'orders' in st.session_state:
+            save_dataframe(st.session_state.orders, "orders.csv")
+        
+        if "order_items.csv" in missing_files and 'order_items' in st.session_state:
+            save_dataframe(st.session_state.order_items, "order_items.csv")
+        
+        if "invoices.csv" in missing_files and 'invoices' in st.session_state:
+            save_dataframe(st.session_state.invoices, "invoices.csv")
+        
+        if "income.csv" in missing_files and 'income' in st.session_state:
+            save_dataframe(st.session_state.income, "income.csv")
+        
+        if "material_costs.csv" in missing_files and 'material_costs' in st.session_state:
+            save_dataframe(st.session_state.material_costs, "material_costs.csv")
+        
+        if "invoice_status.csv" in missing_files and 'invoice_status' in st.session_state:
+            save_dataframe(st.session_state.invoice_status, "invoice_status.csv")
+
+# Call this function after loading data
+initialize_data_if_needed()
+
 # Default dataframes (will be used if files don't exist)
 default_products = pd.DataFrame({
     'product_id': ['P001', 'P002', 'P003', 'P004'],
@@ -620,7 +739,7 @@ st.title("Hệ Thống Quản Lý Tiệm Bánh 🍰")
 # Sidebar navigation
 tab_selection = st.sidebar.radio(
     "Điều hướng",
-    ["Quản lý Đơn hàng", "Theo dõi Doanh thu", "Kho Nguyên liệu", "Quản lý Sản phẩm", "Quản lý Hóa đơn"]
+    ["Quản lý Đơn hàng", "Theo dõi Doanh thu", "Kho Nguyên liệu", "Quản lý Sản phẩm", "Quản lý Hóa đơn", "Quản lý Dữ liệu"]
 )
 
 # Order Management Tab
@@ -2417,3 +2536,246 @@ elif tab_selection == "Quản lý Hóa đơn":
                 st.info("Không có hóa đơn nào chưa hoàn thành.")
         else:
             st.info("Chưa có hóa đơn nào để hiển thị.")
+
+# Data Management and Debug Tab
+elif tab_selection == "Quản lý Dữ liệu":
+    st.header("Quản lý Dữ liệu")
+    
+    data_tab1, data_tab2, data_tab3 = st.tabs(["Sao lưu & Phục hồi", "Xóa Dữ liệu", "Thông tin Dữ liệu"])
+    
+    with data_tab1:
+        st.subheader("Sao lưu & Phục hồi Dữ liệu")
+        
+        data_dir = r"C:\\Users\\Computer\\PycharmProjects\\bakery_sys\\bakery_data"
+        
+        # Backup section
+        st.write("### Sao lưu Dữ liệu")
+        st.write("Tạo bản sao lưu cho tất cả dữ liệu của hệ thống.")
+        
+        if st.button("Lưu Tất cả Dữ liệu"):
+            try:
+                # Save all current data
+                save_all_data()
+                st.success("Đã lưu tất cả dữ liệu thành công!")
+            except Exception as e:
+                st.error(f"Lỗi khi lưu dữ liệu: {str(e)}")
+                
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            if st.button("Tạo Backup"):
+                try:
+                    # Create backup directory if it doesn't exist
+                    backup_dir = os.path.join(data_dir, "backup")
+                    if not os.path.exists(backup_dir):
+                        os.makedirs(backup_dir)
+                    
+                    # Get current timestamp for backup name
+                    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+                    backup_zip = os.path.join(backup_dir, f"backup_{timestamp}.zip")
+                    
+                    # Create a zip file containing all CSVs
+                    import zipfile
+                    with zipfile.ZipFile(backup_zip, 'w') as zip_file:
+                        for file in os.listdir(data_dir):
+                            if file.endswith('.csv'):
+                                file_path = os.path.join(data_dir, file)
+                                zip_file.write(file_path, arcname=file)
+                    
+                    st.success(f"Đã tạo backup thành công: {backup_zip}")
+                except Exception as e:
+                    st.error(f"Lỗi khi tạo backup: {str(e)}")
+        
+        with col2:
+            if st.button("Tải lại Dữ liệu"):
+                try:
+                    # Force reload all data from disk
+                    st.session_state.products = load_dataframe("products.csv", default_products)
+                    st.session_state.materials = load_dataframe("materials.csv", default_materials)
+                    st.session_state.recipes = load_dataframe("recipes.csv", default_recipes)
+                    st.session_state.orders = load_dataframe("orders.csv", default_orders)
+                    st.session_state.order_items = load_dataframe("order_items.csv", default_order_items)
+                    st.session_state.invoices = load_dataframe("invoices.csv", default_invoices)
+                    st.session_state.income = load_dataframe("income.csv", default_income)
+                    st.session_state.material_costs = load_dataframe("material_costs.csv", default_material_costs)
+                    st.session_state.invoice_status = load_dataframe("invoice_status.csv", default_invoice_status)
+                    
+                    st.success("Đã tải lại dữ liệu thành công!")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Lỗi khi tải lại dữ liệu: {str(e)}")
+    
+    with data_tab2:
+        st.subheader("Xóa Dữ liệu")
+        st.warning("⚠️ **Cảnh báo**: Các hành động ở đây có thể làm mất dữ liệu vĩnh viễn!")
+        
+        reset_options = st.radio(
+            "Chọn loại dữ liệu để xóa:",
+            ["Không xóa gì", "Xóa dữ liệu đơn hàng và hóa đơn", "Xóa dữ liệu kho", "Xóa dữ liệu sản phẩm", "Xóa tất cả dữ liệu"]
+        )
+        
+        if reset_options != "Không xóa gì":
+            st.write(f"**Bạn đã chọn:** {reset_options}")
+            
+            # Display what will be deleted
+            if reset_options == "Xóa dữ liệu đơn hàng và hóa đơn":
+                st.write("Các dữ liệu sau sẽ bị xóa:")
+                st.write("- Đơn hàng")
+                st.write("- Chi tiết đơn hàng")
+                st.write("- Hóa đơn")
+                st.write("- Trạng thái hóa đơn")
+                st.write("- Doanh thu")
+            elif reset_options == "Xóa dữ liệu kho":
+                st.write("Các dữ liệu sau sẽ bị xóa:")
+                st.write("- Nguyên liệu (sẽ được thiết lập lại về mặc định)")
+                st.write("- Chi phí nguyên liệu")
+            elif reset_options == "Xóa dữ liệu sản phẩm":
+                st.write("Các dữ liệu sau sẽ bị xóa:")
+                st.write("- Sản phẩm (sẽ được thiết lập lại về mặc định)")
+                st.write("- Công thức (sẽ được thiết lập lại về mặc định)")
+            else:  # Xóa tất cả
+                st.write("**Tất cả dữ liệu** sẽ bị xóa và thiết lập lại về mặc định!")
+            
+            # Multiple confirmations for safety
+            confirm1 = st.checkbox("Tôi muốn xóa dữ liệu đã chọn", key="confirm_delete_1")
+            confirm2 = st.checkbox("Tôi hiểu rằng dữ liệu bị xóa sẽ không thể khôi phục (trừ khi có bản sao lưu)", key="confirm_delete_2")
+            
+            delete_password = st.text_input("Nhập 'XOA' để xác nhận:", type="password", key="delete_password")
+            
+            if st.button("Xóa Dữ liệu") and confirm1 and confirm2 and delete_password == "XOA":
+                try:
+                    # Create automatic backup before deletion
+                    backup_dir = os.path.join(data_dir, "backup")
+                    if not os.path.exists(backup_dir):
+                        os.makedirs(backup_dir)
+                    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+                    backup_zip = os.path.join(backup_dir, f"auto_backup_before_deletion_{timestamp}.zip")
+                    
+                    # Create a zip file containing all CSVs
+                    import zipfile
+                    with zipfile.ZipFile(backup_zip, 'w') as zip_file:
+                        for file in os.listdir(data_dir):
+                            if file.endswith('.csv'):
+                                file_path = os.path.join(data_dir, file)
+                                zip_file.write(file_path, arcname=file)
+                    
+                    if reset_options == "Xóa dữ liệu đơn hàng và hóa đơn":
+                        # Reset order-related data
+                        st.session_state.orders = default_orders.copy()
+                        st.session_state.order_items = default_order_items.copy()
+                        st.session_state.invoices = default_invoices.copy()
+                        st.session_state.invoice_status = default_invoice_status.copy()
+                        st.session_state.income = default_income.copy()
+                        
+                        # Save the reset data
+                        save_dataframe(st.session_state.orders, "orders.csv")
+                        save_dataframe(st.session_state.order_items, "order_items.csv")
+                        save_dataframe(st.session_state.invoices, "invoices.csv")
+                        save_dataframe(st.session_state.invoice_status, "invoice_status.csv")
+                        save_dataframe(st.session_state.income, "income.csv")
+                        
+                    elif reset_options == "Xóa dữ liệu kho":
+                        # Reset materials data
+                        st.session_state.materials = default_materials.copy()
+                        st.session_state.material_costs = default_material_costs.copy()
+                        
+                        # Save the reset data
+                        save_dataframe(st.session_state.materials, "materials.csv")
+                        save_dataframe(st.session_state.material_costs, "material_costs.csv")
+                        
+                    elif reset_options == "Xóa dữ liệu sản phẩm":
+                        # Reset product data
+                        st.session_state.products = default_products.copy()
+                        st.session_state.recipes = default_recipes.copy()
+                        
+                        # Save the reset data
+                        save_dataframe(st.session_state.products, "products.csv")
+                        save_dataframe(st.session_state.recipes, "recipes.csv")
+                        
+                    else:  # Xóa tất cả
+                        # Reset all data
+                        st.session_state.products = default_products.copy()
+                        st.session_state.materials = default_materials.copy()
+                        st.session_state.recipes = default_recipes.copy()
+                        st.session_state.orders = default_orders.copy()
+                        st.session_state.order_items = default_order_items.copy()
+                        st.session_state.invoices = default_invoices.copy()
+                        st.session_state.invoice_status = default_invoice_status.copy()
+                        st.session_state.income = default_income.copy()
+                        st.session_state.material_costs = default_material_costs.copy()
+                        
+                        # Save all reset data
+                        save_all_data()
+                    
+                    st.success(f"Đã xóa dữ liệu thành công! Backup tự động được lưu tại: {backup_zip}")
+                    st.info("Ứng dụng sẽ tải lại sau 5 giây...")
+                    import time
+                    time.sleep(5)
+                    st.rerun()
+                    
+                except Exception as e:
+                    st.error(f"Lỗi khi xóa dữ liệu: {str(e)}")
+    
+    with data_tab3:
+        st.subheader("Thông tin Dữ liệu")
+        
+        data_dir = r"C:\\Users\\Computer\\PycharmProjects\\bakery_sys\\bakery_data"
+        
+        # Check if data directory exists
+        if not os.path.exists(data_dir):
+            st.error(f"Thư mục dữ liệu không tồn tại: {data_dir}")
+        else:
+            st.write(f"Thư mục dữ liệu: {data_dir}")
+            
+            # List CSV files
+            files = [f for f in os.listdir(data_dir) if f.endswith('.csv')]
+            if not files:
+                st.warning("Không tìm thấy file CSV nào trong thư mục dữ liệu.")
+            else:
+                st.write(f"Tìm thấy {len(files)} file CSV:")
+                
+                file_info = []
+                for file in files:
+                    filepath = os.path.join(data_dir, file)
+                    size = os.path.getsize(filepath)
+                    modified = datetime.datetime.fromtimestamp(os.path.getmtime(filepath)).strftime("%Y-%m-%d %H:%M:%S")
+                    
+                    # Count rows
+                    try:
+                        df = pd.read_csv(filepath)
+                        rows = len(df)
+                    except:
+                        rows = "Lỗi đọc file"
+                    
+                    file_info.append({
+                        "Tên file": file,
+                        "Kích thước": f"{size:,} bytes",
+                        "Số dòng": rows,
+                        "Lần sửa cuối": modified
+                    })
+                
+                st.table(pd.DataFrame(file_info))
+        
+        # Show session state data sizes
+        st.subheader("Dữ liệu trong phiên hiện tại")
+        
+        session_data = []
+        for key in [
+            'products', 'materials', 'recipes', 'orders', 'order_items', 
+            'invoices', 'income', 'material_costs', 'invoice_status'
+        ]:
+            if key in st.session_state:
+                rows = len(st.session_state[key])
+                columns = len(st.session_state[key].columns) if rows > 0 else 0
+                session_data.append({
+                    "Tên dữ liệu": key,
+                    "Số dòng": rows,
+                    "Số cột": columns
+                })
+        
+        st.table(pd.DataFrame(session_data))
+        
+        # Add a force save button
+        if st.button("Lưu lại tất cả dữ liệu"):
+            save_all_data()
+            st.success("Đã lưu lại tất cả dữ liệu thành công!")
