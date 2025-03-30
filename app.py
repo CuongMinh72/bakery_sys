@@ -117,7 +117,7 @@ default_material_costs = pd.DataFrame(columns=[
 ])
 
 default_invoice_status = pd.DataFrame(columns=[
-    'invoice_id', 'is_completed', 'completion_date', 'notes'
+    'invoice_id', 'is_completed', 'completion_date', 'notes', 'payment_status'
 ])
 
 # Load data from files or use defaults
@@ -2049,9 +2049,13 @@ elif tab_selection == "Quản lý Hóa đơn":
                     'invoice_id': [invoice_id],
                     'is_completed': [False],
                     'completion_date': [''],
-                    'notes': ['']
+                    'notes': [''],
+                    'payment_status': ['Chưa thanh toán']  # Add default payment status
                 })
                 st.session_state.invoice_status = pd.concat([st.session_state.invoice_status, new_status], ignore_index=True)
+            # Add payment_status column to existing records if it doesn't exist
+            elif 'payment_status' not in st.session_state.invoice_status.columns:
+                st.session_state.invoice_status['payment_status'] = 'Chưa thanh toán'
     
     invoice_tab1, invoice_tab2 = st.tabs(["Danh sách Hóa đơn", "Hóa đơn Chưa hoàn thành"])
     
@@ -2078,7 +2082,8 @@ elif tab_selection == "Quản lý Hóa đơn":
                 'Thanh toán': invoices_with_status['payment_method'],
                 'Trạng thái': invoices_with_status['is_completed'].apply(
                     lambda x: "✅ Hoàn thành" if x else "⏳ Chưa hoàn thành"
-                )
+                ),
+                'Trạng thái TT': invoices_with_status['payment_status'] if 'payment_status' in invoices_with_status.columns else "Chưa thanh toán"
             })
             
             # Show the invoices sorted by date
@@ -2168,6 +2173,8 @@ elif tab_selection == "Quản lý Hóa đơn":
                             st.write(f"**Thanh toán:** {invoice_data['payment_method']}")
                             status_text = "✅ Hoàn thành" if status_data['is_completed'] else "⏳ Chưa hoàn thành"
                             st.write(f"**Trạng thái:** {status_text}")
+                            payment_status = status_data.get('payment_status', "Chưa thanh toán")
+                            st.write(f"**Trạng thái TT:** {payment_status}")
                         
                         # Completion status toggle and notes
                         st.write("### Cập nhật Trạng thái")
@@ -2193,7 +2200,17 @@ elif tab_selection == "Quản lý Hóa đơn":
                                 ).strftime("%Y-%m-%d")
                             else:
                                 new_completion_date = ""
-                        
+
+                            # Add payment status selector
+                            payment_status_options = ["Chưa thanh toán", "Đã thanh toán một phần", "Đã thanh toán"]
+                            current_payment_status = status_data.get('payment_status', "Chưa thanh toán")
+                            new_payment_status = st.selectbox(
+                                "Trạng thái thanh toán",
+                                options=payment_status_options,
+                                index=payment_status_options.index(current_payment_status) if current_payment_status in payment_status_options else 0,
+                                key=f"payment_status_{selected_invoice_id}"
+                            )
+
                         with completion_col2:
                             new_notes = st.text_area(
                                 "Ghi chú",
@@ -2212,6 +2229,11 @@ elif tab_selection == "Quản lý Hóa đơn":
                             st.session_state.invoice_status.at[status_idx, 'completion_date'] = new_completion_date
                             st.session_state.invoice_status.at[status_idx, 'notes'] = new_notes
                             
+                            # Add payment status update
+                            if 'payment_status' not in st.session_state.invoice_status.columns:
+                                st.session_state.invoice_status['payment_status'] = "Chưa thanh toán"
+                            st.session_state.invoice_status.at[status_idx, 'payment_status'] = new_payment_status
+
                             st.success(f"Trạng thái hóa đơn {selected_invoice_id} đã được cập nhật!")
                             # Save invoice status data
                             save_dataframe(st.session_state.invoice_status, "invoice_status.csv")
