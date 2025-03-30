@@ -506,7 +506,7 @@ def generate_invoice_content(invoice_id, order_id, as_pdf=False):
         y_position = height - 2*cm
         
         # Draw store name (centered)
-        set_font('bold', 28)
+        set_font('bold', 34)
         c.drawCentredString(width/2, y_position, store_name)
         y_position -= 1.2*cm
         
