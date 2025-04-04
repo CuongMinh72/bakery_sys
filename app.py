@@ -701,7 +701,7 @@ def generate_invoice_content(invoice_id, order_id, as_pdf=False):
         
         # Add QR code at the center of the page
         try:
-            qr_image_path = "assets/qr_cua_xuan.png"
+            qr_image_path = "assets/qr_code.png"
             
             # Check if file exists before trying to draw it
             if os.path.exists(qr_image_path):
