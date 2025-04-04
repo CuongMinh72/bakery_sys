@@ -3,3 +3,6 @@ pandas
 reportlab
 qrcode
 pillow
+pymongo==4.3.3
+streamlit==1.25.0
+pandas==2.0.3

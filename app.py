@@ -21,6 +21,9 @@ import base64
 import warnings
 import json
 from datetime import date
+import pymongo
+import pandas as pd
+from bson import json_util
 
 # Suppress the ScriptRunContext warnings
 warnings.filterwarnings('ignore', message='.*missing ScriptRunContext.*')
@@ -32,157 +35,205 @@ st.set_page_config(
     layout="wide"
 )
 
-def save_dataframe(df, filename):
-    """Save a dataframe to a CSV file"""
+def init_mongodb_client():
+    """Initialize MongoDB client using Streamlit secrets"""
     try:
-        # Use the specific directory path with absolute path
-        data_dir = r"C:\\Users\\Computer\\PycharmProjects\\bakery_sys\\bakery_data"
-        
-        # Create data directory if it doesn't exist
-        if not os.path.exists(data_dir):
-            os.makedirs(data_dir)
-            print(f"Created directory: {data_dir}")
-        
-        # Normalize the filepath and make it absolute
-        filepath = os.path.abspath(os.path.join(data_dir, filename))
-        
-        # Save to CSV in the specified directory
-        df.to_csv(filepath, index=False)
-        print(f"Saved {len(df)} rows to {filepath}")
-        return True
-    except Exception as e:
-        print(f"Error saving {filename}: {e}")
-        st.error(f"Failed to save {filename}: {e}")
-        return False
-
-def load_dataframe(filename, default_df):
-    """Load a dataframe from a CSV file or return the default if file doesn't exist"""
-    try:
-        # Use the specific directory path with absolute path
-        data_dir = r"C:\\Users\\Computer\\PycharmProjects\\bakery_sys\\bakery_data"
-        
-        # Normalize the filepath and make it absolute
-        filepath = os.path.abspath(os.path.join(data_dir, filename))
-        
-        if os.path.exists(filepath):
-            # Try to read the CSV file
-            df = pd.read_csv(filepath)
-            print(f"Loaded {len(df)} rows from {filepath}")
+        if "mongodb" in st.secrets:
+            # Get connection details from secrets
+            connection_string = st.secrets["mongodb"]["connection_string"]
+            database_name = st.secrets["mongodb"]["database"]
             
-            # Verify the dataframe has content
-            if len(df) > 0:
-                return df
-            else:
-                print(f"File {filename} exists but is empty, using default")
+            # Create MongoDB client
+            client = pymongo.MongoClient(connection_string)
+            db = client[database_name]
+            
+            # Store in session state
+            st.session_state.mongo_client = client
+            st.session_state.mongo_db = db
+            
+            if show_debug:
+                st.sidebar.success(f"Connected to MongoDB Atlas: {database_name}")
+            
+            return client, db
         else:
-            print(f"File not found: {filepath}, using default")
-        
-        # Make a copy of the default dataframe to avoid modifying the original
-        return default_df.copy()
+            if show_debug:
+                st.sidebar.warning("MongoDB credentials not found in secrets. Using session state only.")
+            return None, None
     except Exception as e:
-        print(f"Error loading {filename}: {e}")
-        st.error(f"Failed to load {filename}: {e}")
+        if show_debug:
+            st.sidebar.error(f"Error initializing MongoDB: {str(e)}")
+        return None, None
+
+def save_dataframe(df, collection_name):
+    """Save a dataframe to MongoDB or session state"""
+    try:
+        # Try to save to MongoDB if client is available
+        if "mongo_client" in st.session_state and "mongo_db" in st.session_state:
+            db = st.session_state.mongo_db
+            
+            # Convert dataframe to records
+            records = df.to_dict(orient='records')
+            
+            # Get collection name (remove .csv extension)
+            coll_name = collection_name.replace('.csv', '')
+            collection = db[coll_name]
+            
+            # Delete existing documents and insert new ones
+            collection.delete_many({})
+            if records:
+                collection.insert_many(records)
+            
+            if show_debug:
+                st.sidebar.write(f"Saved {len(records)} rows to MongoDB: {coll_name}")
+            
+            # Also save to session state as backup
+            key = collection_name.replace('.csv', '')
+            st.session_state[key] = df
+            
+            return True
+        else:
+            # Save to session state only
+            key = collection_name.replace('.csv', '')
+            st.session_state[key] = df
+            
+            if show_debug:
+                st.sidebar.write(f"Saved {len(df)} rows to session state: {key}")
+            
+            return True
+    except Exception as e:
+        print(f"Error saving {collection_name}: {e}")
+        st.error(f"Failed to save {collection_name}: {e}")
+        
+        # Try to save to session state as fallback
+        try:
+            key = collection_name.replace('.csv', '')
+            st.session_state[key] = df
+            return True
+        except:
+            return False
+
+def load_dataframe(collection_name, default_df):
+    """Load a dataframe from MongoDB or session state, or return default if not found"""
+    try:
+        # Try to load from MongoDB if client is available
+        if "mongo_client" in st.session_state and "mongo_db" in st.session_state:
+            db = st.session_state.mongo_db
+            
+            # Get collection name (remove .csv extension)
+            coll_name = collection_name.replace('.csv', '')
+            
+            try:
+                # Try to get data from MongoDB
+                collection = db[coll_name]
+                data = list(collection.find({}, {'_id': 0}))  # Exclude MongoDB _id field
+                
+                if data:
+                    # Convert to DataFrame
+                    df = pd.DataFrame(data)
+                    
+                    # Save to session state as a backup
+                    key = collection_name.replace('.csv', '')
+                    st.session_state[key] = df
+                    
+                    if show_debug:
+                        st.sidebar.write(f"Loaded {len(df)} rows from MongoDB: {coll_name}")
+                    
+                    return df
+                else:
+                    # If no data in MongoDB, check session state
+                    if show_debug:
+                        st.sidebar.write(f"No data found in MongoDB: {coll_name}, checking session state")
+                    
+                    # Try to load from session state
+                    key = collection_name.replace('.csv', '')
+                    if key in st.session_state:
+                        df = st.session_state[key]
+                        if len(df) > 0:
+                            if show_debug:
+                                st.sidebar.write(f"Loaded {len(df)} rows from session state: {key}")
+                            return df
+                    
+                    # If not in session state either, return default
+                    if show_debug:
+                        st.sidebar.write(f"No data found in session state, using default")
+                    
+                    return default_df.copy()
+            except Exception as e:
+                # Handle MongoDB errors
+                if show_debug:
+                    st.sidebar.error(f"Error reading from MongoDB: {str(e)}")
+                
+                # Try to load from session state
+                key = collection_name.replace('.csv', '')
+                if key in st.session_state:
+                    df = st.session_state[key]
+                    if len(df) > 0:
+                        if show_debug:
+                            st.sidebar.write(f"Loaded {len(df)} rows from session state: {key}")
+                        return df
+                
+                # If not in session state, return default
+                return default_df.copy()
+        else:
+            # Try to load from session state
+            key = collection_name.replace('.csv', '')
+            if key in st.session_state:
+                df = st.session_state[key]
+                if len(df) > 0:
+                    if show_debug:
+                        st.sidebar.write(f"Loaded {len(df)} rows from session state: {key}")
+                    return df
+            
+            # If not in session state, return default
+            return default_df.copy()
+            
+    except Exception as e:
+        print(f"Error loading {collection_name}: {e}")
+        st.error(f"Failed to load {collection_name}: {e}")
         return default_df.copy()
-
-# Add this code at the beginning of your app to initialize the data directory
-def ensure_data_directory():
-    data_dir = r"C:\\Users\\Computer\\PycharmProjects\\bakery_sys\\bakery_data"
-    if not os.path.exists(data_dir):
-        try:
-            os.makedirs(data_dir)
-            print(f"Created data directory: {data_dir}")
-        except Exception as e:
-            print(f"Failed to create data directory: {e}")
-            st.error(f"Failed to create data directory: {e}")
-
-# Call this function after importing libraries
-ensure_data_directory()
-
-# Add this debug code at the start of your app, after imports
-def check_data_files():
-    """Check if data files exist and print their details"""
-    data_dir = r"C:\\Users\\Computer\\PycharmProjects\\bakery_sys\\bakery_data"
-    if not os.path.exists(data_dir):
-        st.warning(f"Data directory does not exist: {data_dir}")
-        return
     
-    st.write(f"Data directory exists: {data_dir}")
-    
-    files = [f for f in os.listdir(data_dir) if f.endswith('.csv')]
-    if not files:
-        st.warning("No CSV files found in data directory")
-        return
-    
-    st.write(f"Found {len(files)} CSV files:")
-    for file in files:
-        filepath = os.path.join(data_dir, file)
-        filesize = os.path.getsize(filepath)
-        st.write(f"- {file}: {filesize} bytes")
-        try:
-            df = pd.read_csv(filepath)
-            st.write(f"  Contains {len(df)} rows")
-        except Exception as e:
-            st.write(f"  Error reading file: {str(e)}")
-
 # Add a toggle to show debug information
 show_debug = st.sidebar.checkbox("Show Debug Info", value=False)
+
+# Initialize MongoDB client
+if "mongo_client" not in st.session_state or "mongo_db" not in st.session_state:
+    mongo_client, mongo_db = init_mongodb_client()
+else:
+    mongo_client = st.session_state.mongo_client
+    mongo_db = st.session_state.mongo_db
+
 if show_debug:
     st.sidebar.write("### Debug Information")
-    check_data_files()
     
-# Add an explicit function to initialize data if needed
-def initialize_data_if_needed():
-    """Initialize data files if they don't exist yet"""
-    data_dir = r"C:\\Users\\Computer\\PycharmProjects\\bakery_sys\\bakery_data"
-    
-    # List of expected files
-    expected_files = [
-        "products.csv", "materials.csv", "recipes.csv", 
-        "orders.csv", "order_items.csv", "invoices.csv", 
-        "income.csv", "material_costs.csv", "invoice_status.csv"
-    ]
-    
-    # Check if any files are missing
-    missing_files = []
-    for filename in expected_files:
-        filepath = os.path.join(data_dir, filename)
-        if not os.path.exists(filepath):
-            missing_files.append(filename)
-    
-    # If any files are missing, save the default dataframes
-    if missing_files:
-        print(f"Initializing missing data files: {', '.join(missing_files)}")
-        
-        # Save default dataframes for missing files
-        if "products.csv" in missing_files and 'products' in st.session_state:
-            save_dataframe(st.session_state.products, "products.csv")
-        
-        if "materials.csv" in missing_files and 'materials' in st.session_state:
-            save_dataframe(st.session_state.materials, "materials.csv")
-        
-        if "recipes.csv" in missing_files and 'recipes' in st.session_state:
-            save_dataframe(st.session_state.recipes, "recipes.csv")
-        
-        if "orders.csv" in missing_files and 'orders' in st.session_state:
-            save_dataframe(st.session_state.orders, "orders.csv")
-        
-        if "order_items.csv" in missing_files and 'order_items' in st.session_state:
-            save_dataframe(st.session_state.order_items, "order_items.csv")
-        
-        if "invoices.csv" in missing_files and 'invoices' in st.session_state:
-            save_dataframe(st.session_state.invoices, "invoices.csv")
-        
-        if "income.csv" in missing_files and 'income' in st.session_state:
-            save_dataframe(st.session_state.income, "income.csv")
-        
-        if "material_costs.csv" in missing_files and 'material_costs' in st.session_state:
-            save_dataframe(st.session_state.material_costs, "material_costs.csv")
-        
-        if "invoice_status.csv" in missing_files and 'invoice_status' in st.session_state:
-            save_dataframe(st.session_state.invoice_status, "invoice_status.csv")
+    # Show storage info
+    if mongo_client is not None and mongo_db is not None:
+        st.sidebar.write(f"Using MongoDB Atlas for storage: {mongo_db.name}")
+    else:
+        st.sidebar.write("Using session state for storage")
 
-# Call this function after loading data
-initialize_data_if_needed()
+def ensure_mongodb_connection():
+    """Check if MongoDB database is accessible"""
+    if "mongo_client" in st.session_state and "mongo_db" in st.session_state:
+        try:
+            mongo_client = st.session_state.mongo_client
+            mongo_db = st.session_state.mongo_db
+            
+            # Check if connection is alive
+            info = mongo_client.server_info()
+            
+            if show_debug:
+                st.sidebar.write(f"MongoDB database is accessible: {mongo_db.name}")
+            
+            return True
+        except Exception as e:
+            if show_debug:
+                st.sidebar.error(f"Error accessing MongoDB: {str(e)}")
+            return False
+    return False
+
+# Call this function after initialization
+ensure_mongodb_connection()
+
 
 # Default dataframes (will be used if files don't exist)
 default_products = pd.DataFrame({
@@ -415,8 +466,13 @@ def update_income(order_id):
         st.session_state.income = pd.concat([st.session_state.income, new_row], ignore_index=True)
 
 def generate_invoice_content(invoice_id, order_id, as_pdf=False):
-    """Generate invoice content either as text or PDF to match the simplified receipt format
-    optimized for A3 paper size"""
+    """Generate invoice content either as text or PDF that can span multiple pages as needed"""
+    import io
+    import os
+    from reportlab.pdfgen import canvas
+    from reportlab.lib.pagesizes import A3
+    from reportlab.lib.units import cm
+    
     order_data = st.session_state.orders[st.session_state.orders['order_id'] == order_id].iloc[0]
     order_items = st.session_state.order_items[st.session_state.order_items['order_id'] == order_id]
     
@@ -433,8 +489,11 @@ def generate_invoice_content(invoice_id, order_id, as_pdf=False):
     customer_name = order_data['customer_name']
     customer_phone = order_data['customer_phone']
     
-    # Calculate total amount
-    total_amount = order_data['total_amount'] + shipping_fee
+    # Calculate subtotal (product amount without shipping)
+    subtotal_amount = order_data['total_amount']
+    
+    # Calculate total amount (with shipping)
+    total_amount = subtotal_amount + shipping_fee
     
     # Store information from the original code
     store_name = "THUXUAN CAKE"
@@ -442,7 +501,7 @@ def generate_invoice_content(invoice_id, order_id, as_pdf=False):
     store_phone = "ĐT: 0988 159 268"
     
     if not as_pdf:
-        # Text version
+        # Text version with Vietnamese text
         invoice_content = f"""
                                 {store_name}
                                {store_address}
@@ -450,7 +509,7 @@ def generate_invoice_content(invoice_id, order_id, as_pdf=False):
         
         -----------------------------------------
         
-        Bill No. :                #{order_id}#
+        Số hóa đơn:                #{order_id}#
         
         Khách hàng: {customer_name}
         Số điện thoại: {customer_phone}
@@ -460,7 +519,7 @@ def generate_invoice_content(invoice_id, order_id, as_pdf=False):
         
         -----------------------------------------
         
-        Item x Qty                            Price
+        Sản phẩm x SL                         Giá
         """
         
         for _, item in order_items.iterrows():
@@ -469,26 +528,22 @@ def generate_invoice_content(invoice_id, order_id, as_pdf=False):
         invoice_content += f"""
         -----------------------------------------
         
-        Items/Qty                              {len(order_items)}/{order_items['quantity'].sum()}
+        Số lượng mặt hàng/SL                   {len(order_items)}/{order_items['quantity'].sum()}
         
-        Total                               {total_amount:,.0f}
+        Tổng tiền hàng                      {subtotal_amount:,.0f}
+        Phí vận chuyển                      {shipping_fee:,.0f}
+        Tổng thanh toán                     {total_amount:,.0f}
         
         -----------------------------------------
         
-        Payment Method                        Card
+        Phương thức thanh toán               Tiền mặt
         
         
-        " XIN CẢM ƠN QUY KHÁCH."
+        " XIN CẢM ƠN QUÝ KHÁCH."
         """
         
         return invoice_content
     else:
-        # Import required modules
-        import io
-        from reportlab.pdfgen import canvas
-        from reportlab.lib.pagesizes import A3
-        from reportlab.lib.units import cm
-        
         # PDF version optimized for A3
         buffer = io.BytesIO()
         width, height = A3  # A3 size: 29.7 x 42.0 cm
@@ -508,6 +563,13 @@ def generate_invoice_content(invoice_id, order_id, as_pdf=False):
                     c.setFont(f"Helvetica{'-Bold' if font_style == 'bold' else ''}", size)
             else:
                 c.setFont(f"Helvetica{'-Bold' if font_style == 'bold' else ''}", size)
+        
+        # Simplified page break check - just starts a new page without headers
+        def check_page_break(current_y, min_y=7*cm):
+            if current_y < min_y:
+                c.showPage()  # Just start a new page
+                return height - 5*cm  # Return to top of new page
+            return current_y
         
         # Adjusted margins for A3 paper
         left_margin = 5*cm
@@ -535,7 +597,7 @@ def generate_invoice_content(invoice_id, order_id, as_pdf=False):
         
         # Bill number with proper alignment for A3
         set_font('bold', 36)  # Increased font size for A3
-        c.drawString(left_margin, y_position, "Bill No. :")
+        c.drawString(left_margin, y_position, "Số hóa đơn:")
         c.drawString(left_margin + 10*cm, y_position, f"#{order_id}#")
         y_position -= 2*cm
         
@@ -545,94 +607,141 @@ def generate_invoice_content(invoice_id, order_id, as_pdf=False):
         y_position -= 1.5*cm
         
         # Phone
+        y_position = check_page_break(y_position)
         set_font('normal', 30)  # Increased font size for A3
         c.drawString(left_margin, y_position, f"Số điện thoại: {customer_phone}")
         y_position -= 1.5*cm
         
         # Address
+        y_position = check_page_break(y_position)
         set_font('normal', 30)  # Increased font size for A3
         c.drawString(left_margin, y_position, f"Địa chỉ: {customer_address}")
         y_position -= 2*cm
         
         # Date
+        y_position = check_page_break(y_position)
         set_font('normal', 30)  # Increased font size for A3
         c.drawString(left_margin, y_position, f"Ngày: {order_data['date']}")
         y_position -= 2*cm
         
         # Draw separator line
+        y_position = check_page_break(y_position)
         c.setLineWidth(2)
         c.line(left_margin, y_position, right_margin, y_position)
         y_position -= 2*cm
         
         # Column headers with better alignment for A3
+        y_position = check_page_break(y_position)
         set_font('bold', 36)  # Increased font size for A3
-        c.drawString(left_margin, y_position, "Item x Qty")
-        c.drawRightString(right_margin, y_position, "Price")
+        c.drawString(left_margin, y_position, "Sản phẩm x SL")
+        c.drawRightString(right_margin, y_position, "Giá")
         y_position -= 1.5*cm
         
         # Draw items with better spacing and alignment for A3
         for _, item in order_items.iterrows():
+            y_position = check_page_break(y_position)
             set_font('normal', 30)  # Increased font size for A3
             c.drawString(left_margin, y_position, f"{item['name']} x {item['quantity']}")
             # Right-align the price with consistent formatting
             c.drawRightString(right_margin, y_position, f"{item['subtotal']:,.0f}")
             y_position -= 1.5*cm
-            
-            # Check if we need to start a new page - adjusted for A3
-            if y_position < 10*cm:
-                c.showPage()
-                y_position = height - 5*cm
         
         # Draw separator line
+        y_position = check_page_break(y_position)
         c.setLineWidth(2)
         c.line(left_margin, y_position, right_margin, y_position)
         y_position -= 2*cm
         
         # Items/Qty count with proper alignment
+        y_position = check_page_break(y_position)
         set_font('normal', 30)  # Increased font size for A3
-        c.drawString(left_margin, y_position, "Items/Qty")
+        c.drawString(left_margin, y_position, "Số lượng mặt hàng/SL")
         c.drawRightString(right_margin, y_position, f"{len(order_items)}/{order_items['quantity'].sum()}")
         y_position -= 2*cm
         
+        # Subtotal
+        y_position = check_page_break(y_position)
+        set_font('normal', 30)
+        c.drawString(left_margin, y_position, "Tổng tiền hàng")
+        c.drawRightString(right_margin, y_position, f"{subtotal_amount:,.0f}")
+        y_position -= 1.5*cm
+        
+        # Shipping fee
+        y_position = check_page_break(y_position)
+        set_font('normal', 30)
+        c.drawString(left_margin, y_position, "Phí vận chuyển")
+        c.drawRightString(right_margin, y_position, f"{shipping_fee:,.0f}")
+        y_position -= 1.5*cm
+        
         # Total with proper alignment and emphasis
+        y_position = check_page_break(y_position)
         set_font('bold', 40)  # Increased font size for A3
-        c.drawString(left_margin, y_position, "Total")
+        c.drawString(left_margin, y_position, "Tổng thanh toán")
         c.drawRightString(right_margin, y_position, f"{total_amount:,.0f}")
         y_position -= 2*cm
         
         # Draw separator line
+        y_position = check_page_break(y_position)
         c.setLineWidth(2)
         c.line(left_margin, y_position, right_margin, y_position)
         y_position -= 2*cm
         
         # Payment method with proper alignment
+        y_position = check_page_break(y_position)
         set_font('normal', 30)  # Increased font size for A3
-        c.drawString(left_margin, y_position, "Payment Method")
-        c.drawRightString(right_margin, y_position, "Card")
-        y_position -= 4*cm
+        c.drawString(left_margin, y_position, "Phương thức thanh toán")
+        c.drawRightString(right_margin, y_position, "Tiền mặt")
+        y_position -= 3*cm
         
-        # Thank you message with proper formatting and quotes
-        set_font('normal', 36)  # Increased font size for A3
-        c.drawCentredString(width/2, y_position, '" XIN CẢM ƠN QUY KHÁCH."')
+        # Check if we need to start a new page for QR code and thank you message
+        # Need at least 15cm for QR code, payment info, and thank you message
+        if y_position < 15*cm:
+            c.showPage()
+            y_position = height - 10*cm
         
-        # Add QR code if available - larger for A3
+        # Add QR code at the center of the page
         try:
-            qr_y_position = 10*cm  # Lower position for QR code on A3
-            qr_image_path = "C:\\Users\\Computer\\PycharmProjects\\bakery_sys\\assets\\qr_cua_xuan.png"
-            c.drawImage(qr_image_path, left_margin, qr_y_position, width=8*cm, height=8*cm)  # Larger QR code for A3
+            qr_image_path = "assets/qr_cua_xuan.png"
             
-            set_font('bold', 20)  # Increased font size for A3
-            c.drawCentredString(left_margin + 4*cm, qr_y_position - 1*cm, "Quét để thanh toán")
-            
-            set_font('normal', 18)  # Increased font size for A3
-            # Account information
-            account_number = "19037177788018"
-            account_name = "NGUYEN THU XUAN"
-            c.drawCentredString(left_margin + 4*cm, qr_y_position - 2*cm, f"STK: {account_number}")
-            c.drawCentredString(left_margin + 4*cm, qr_y_position - 3*cm, f"Tên: {account_name}")
-        except Exception:
-            # If QR code insertion fails, we don't add any note
-            pass
+            # Check if file exists before trying to draw it
+            if os.path.exists(qr_image_path):
+                # Draw QR code with proper positioning
+                qr_size = 8*cm  # QR code size
+                
+                # Calculate position - center of page horizontally
+                qr_x = (width - qr_size) / 2
+                
+                # Draw QR code centered on the page
+                c.drawImage(qr_image_path, qr_x, y_position - 8*cm, width=qr_size, height=qr_size)
+                
+                # Draw separator line above QR code
+                c.setLineWidth(1)
+                c.line(left_margin, y_position, right_margin, y_position)
+                
+                # Draw payment information centered below QR code
+                set_font('bold', 24)
+                c.drawCentredString(width/2, y_position - 9*cm, "Quét để thanh toán")
+                
+                set_font('normal', 22)
+                # Account information
+                account_number = "0011000597767"
+                account_name = "NGUYỄN VƯƠNG HẰNG"
+                c.drawCentredString(width/2, y_position - 10*cm, f"STK: {account_number}")
+                c.drawCentredString(width/2, y_position - 11*cm, f"Tên: {account_name}")
+                
+                # Draw separator line below QR code info
+                c.setLineWidth(1)
+                c.line(left_margin, y_position - 13*cm, right_margin, y_position - 13*cm)
+                
+                # Thank you message with proper formatting and quotes
+                set_font('normal', 36)  # Increased font size for A3
+                c.drawCentredString(width/2, y_position - 15*cm, '" XIN CẢM ƠN QUÝ KHÁCH."')
+        except Exception as e:
+            # More descriptive error handling
+            print(f"QR code error: {str(e)}")
+            # If QR code insertion fails, still draw the thank you message
+            set_font('normal', 36)
+            c.drawCentredString(width/2, y_position - 4*cm, '" XIN CẢM ƠN QUÝ KHÁCH."')
         
         # Save the PDF
         c.save()
@@ -663,6 +772,105 @@ def delete_product(product_id):
     
     # Show success message
     st.success(f"Sản phẩm {product_id} đã được xóa thành công!")
+
+
+def add_backup_restore_ui():
+    """Add UI for backing up and restoring data"""
+    st.subheader("Backup and Restore Data")
+    
+    backup_tab, restore_tab = st.tabs(["Backup", "Restore"])
+    
+    with backup_tab:
+        st.write("Download your data to keep a backup:")
+        
+        # Individual file downloads
+        st.write("##### Individual Files")
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            # Products and recipes
+            csv_products = st.session_state.products.to_csv(index=False)
+            st.download_button(
+                label="Download Products",
+                data=csv_products,
+                file_name="products.csv",
+                mime="text/csv"
+            )
+            
+            # Rest of download buttons...
+        
+        # Complete backup as JSON
+        st.write("##### Complete Backup")
+        all_data = {
+            "products": st.session_state.products.to_dict(orient='records'),
+            "materials": st.session_state.materials.to_dict(orient='records'),
+            "recipes": st.session_state.recipes.to_dict(orient='records'),
+            "orders": st.session_state.orders.to_dict(orient='records'),
+            "order_items": st.session_state.order_items.to_dict(orient='records'),
+            "invoices": st.session_state.invoices.to_dict(orient='records'),
+            "invoice_status": st.session_state.invoice_status.to_dict(orient='records'),
+            "income": st.session_state.income.to_dict(orient='records'),
+            "material_costs": st.session_state.material_costs.to_dict(orient='records')
+        }
+        
+        json_data = json.dumps(all_data, ensure_ascii=False, indent=2)
+        st.download_button(
+            label="Download Complete Backup (JSON)",
+            data=json_data,
+            file_name="bakery_complete_backup.json",
+            mime="application/json"
+        )
+    
+    with restore_tab:
+        st.write("Restore your data from a backup file:")
+        
+        restore_type = st.radio(
+            "Select restore type",
+            ["Individual CSV files", "Complete JSON backup"]
+        )
+        
+        if restore_type == "Individual CSV files":
+            file_type = st.selectbox(
+                "Select file type to restore",
+                ["products", "materials", "recipes", "orders", "order_items", 
+                "invoices", "income", "material_costs", "invoice_status"]
+            )
+            
+            uploaded_file = st.file_uploader(f"Upload {file_type}.csv", type="csv")
+            
+            if uploaded_file is not None:
+                try:
+                    df = pd.read_csv(uploaded_file)
+                    st.session_state[file_type] = df
+                    
+                    # Save to storage
+                    save_dataframe(df, f"{file_type}.csv")
+                    
+                    st.success(f"Successfully restored {file_type} data with {len(df)} rows!")
+                except Exception as e:
+                    st.error(f"Error uploading file: {str(e)}")
+        else:
+            uploaded_json = st.file_uploader("Upload complete JSON backup", type="json")
+            
+            if uploaded_json is not None:
+                try:
+                    data = json.load(uploaded_json)
+                    
+                    for key, records in data.items():
+                        if not records:
+                            # Skip empty data
+                            continue
+                            
+                        df = pd.DataFrame.from_records(records)
+                        st.session_state[key] = df
+                        
+                        # Save to storage
+                        save_dataframe(df, f"{key}.csv")
+                    
+                    st.success("Successfully restored all data from backup!")
+                    st.info("Please reload the app to apply all changes.")
+                except Exception as e:
+                    st.error(f"Error uploading JSON backup: {str(e)}")
 
 # Main app navigation
 st.title("Hệ Thống Quản Lý Tiệm Bánh 🍰")
@@ -2477,50 +2685,71 @@ elif tab_selection == "Quản lý Dữ liệu":
     with data_tab1:
         st.subheader("Sao lưu & Phục hồi Dữ liệu")
         
-        data_dir = r"C:\\Users\\Computer\\PycharmProjects\\bakery_sys\\bakery_data"
+        # Add backup/restore UI
+        add_backup_restore_ui()
         
-        # Backup section
-        st.write("### Sao lưu Dữ liệu")
-        st.write("Tạo bản sao lưu cho tất cả dữ liệu của hệ thống.")
-        
-        if st.button("Lưu Tất cả Dữ liệu"):
+        # Display MongoDB storage information if available
+        if "mongo_client" in st.session_state and "mongo_db" in st.session_state:
+            st.subheader("Thông tin Lưu trữ MongoDB")
             try:
-                # Save all current data
-                save_all_data()
-                st.success("Đã lưu tất cả dữ liệu thành công!")
-            except Exception as e:
-                st.error(f"Lỗi khi lưu dữ liệu: {str(e)}")
+                mongo_client = st.session_state.mongo_client
+                mongo_db = st.session_state.mongo_db
                 
+                # Get database information
+                db_name = mongo_db.name
+                
+                # Define expected collection names (matching CSV file names used in the app)
+                expected_collections = [
+                    "products", "materials", "recipes", "orders", 
+                    "order_items", "invoices", "invoice_status", 
+                    "income", "material_costs"
+                ]
+                
+                # Get actual collection names from MongoDB
+                actual_collections = mongo_db.list_collection_names()
+                
+                # Get collection statistics
+                collections_info = []
+                for collection_name in expected_collections:
+                    # Check if collection exists
+                    exists = collection_name in actual_collections
+                    doc_count = mongo_db[collection_name].count_documents({}) if exists else 0
+                    
+                    collections_info.append({
+                        "Tên bảng": collection_name,
+                        "Tồn tại": "✓" if exists else "✗",
+                        "Số bản ghi": doc_count
+                    })
+                
+                st.info(f"Dữ liệu đang được lưu trữ trong MongoDB Atlas: {db_name}")
+                st.write("#### Các bảng trong MongoDB:")
+                st.table(pd.DataFrame(collections_info))
+                
+                # Show warning if any expected collection is missing
+                missing_collections = [c for c in expected_collections if c not in actual_collections]
+                if missing_collections:
+                    st.warning(f"Một số bảng chưa được tạo trong MongoDB: {', '.join(missing_collections)}. Các bảng sẽ được tạo tự động khi lưu dữ liệu.")
+                
+            except Exception as e:
+                st.error(f"Lỗi khi truy cập MongoDB: {str(e)}")
+        else:
+            st.info("Đang sử dụng lưu trữ phiên (session) cho dữ liệu. Lưu ý rằng dữ liệu có thể bị mất khi làm mới trang.")
+        
         col1, col2 = st.columns(2)
         
         with col1:
-            if st.button("Tạo Backup"):
+            if st.button("Lưu Tất cả Dữ liệu"):
                 try:
-                    # Create backup directory if it doesn't exist
-                    backup_dir = os.path.join(data_dir, "backup")
-                    if not os.path.exists(backup_dir):
-                        os.makedirs(backup_dir)
-                    
-                    # Get current timestamp for backup name
-                    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-                    backup_zip = os.path.join(backup_dir, f"backup_{timestamp}.zip")
-                    
-                    # Create a zip file containing all CSVs
-                    import zipfile
-                    with zipfile.ZipFile(backup_zip, 'w') as zip_file:
-                        for file in os.listdir(data_dir):
-                            if file.endswith('.csv'):
-                                file_path = os.path.join(data_dir, file)
-                                zip_file.write(file_path, arcname=file)
-                    
-                    st.success(f"Đã tạo backup thành công: {backup_zip}")
+                    # Save all current data
+                    save_all_data()
+                    st.success("Đã lưu tất cả dữ liệu thành công!")
                 except Exception as e:
-                    st.error(f"Lỗi khi tạo backup: {str(e)}")
+                    st.error(f"Lỗi khi lưu dữ liệu: {str(e)}")
         
         with col2:
             if st.button("Tải lại Dữ liệu"):
                 try:
-                    # Force reload all data from disk
+                    # Force reload all data from storage
                     st.session_state.products = load_dataframe("products.csv", default_products)
                     st.session_state.materials = load_dataframe("materials.csv", default_materials)
                     st.session_state.recipes = load_dataframe("recipes.csv", default_recipes)
@@ -2535,7 +2764,7 @@ elif tab_selection == "Quản lý Dữ liệu":
                     st.rerun()
                 except Exception as e:
                     st.error(f"Lỗi khi tải lại dữ liệu: {str(e)}")
-    
+
     with data_tab2:
         st.subheader("Xóa Dữ liệu")
         st.warning("⚠️ **Cảnh báo**: Các hành động ở đây có thể làm mất dữ liệu vĩnh viễn!")
@@ -2574,22 +2803,7 @@ elif tab_selection == "Quản lý Dữ liệu":
             delete_password = st.text_input("Nhập 'XOA' để xác nhận:", type="password", key="delete_password")
             
             if st.button("Xóa Dữ liệu") and confirm1 and confirm2 and delete_password == "XOA":
-                try:
-                    # Create automatic backup before deletion
-                    backup_dir = os.path.join(data_dir, "backup")
-                    if not os.path.exists(backup_dir):
-                        os.makedirs(backup_dir)
-                    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-                    backup_zip = os.path.join(backup_dir, f"auto_backup_before_deletion_{timestamp}.zip")
-                    
-                    # Create a zip file containing all CSVs
-                    import zipfile
-                    with zipfile.ZipFile(backup_zip, 'w') as zip_file:
-                        for file in os.listdir(data_dir):
-                            if file.endswith('.csv'):
-                                file_path = os.path.join(data_dir, file)
-                                zip_file.write(file_path, arcname=file)
-                    
+                try:               
                     if reset_options == "Xóa dữ liệu đơn hàng và hóa đơn":
                         # Reset order-related data
                         st.session_state.orders = default_orders.copy()
@@ -2638,7 +2852,7 @@ elif tab_selection == "Quản lý Dữ liệu":
                         # Save all reset data
                         save_all_data()
                     
-                    st.success(f"Đã xóa dữ liệu thành công! Backup tự động được lưu tại: {backup_zip}")
+                    st.success(f"Đã xóa dữ liệu thành công! Có thể tải bản sao lưu từ tab 'Sao lưu & Phục hồi'")
                     st.info("Ứng dụng sẽ tải lại sau 5 giây...")
                     import time
                     time.sleep(5)
@@ -2650,46 +2864,10 @@ elif tab_selection == "Quản lý Dữ liệu":
     with data_tab3:
         st.subheader("Thông tin Dữ liệu")
         
-        data_dir = r"C:\\Users\\Computer\\PycharmProjects\\bakery_sys\\bakery_data"
-        
-        # Check if data directory exists
-        if not os.path.exists(data_dir):
-            st.error(f"Thư mục dữ liệu không tồn tại: {data_dir}")
-        else:
-            st.write(f"Thư mục dữ liệu: {data_dir}")
-            
-            # List CSV files
-            files = [f for f in os.listdir(data_dir) if f.endswith('.csv')]
-            if not files:
-                st.warning("Không tìm thấy file CSV nào trong thư mục dữ liệu.")
-            else:
-                st.write(f"Tìm thấy {len(files)} file CSV:")
-                
-                file_info = []
-                for file in files:
-                    filepath = os.path.join(data_dir, file)
-                    size = os.path.getsize(filepath)
-                    modified = datetime.datetime.fromtimestamp(os.path.getmtime(filepath)).strftime("%Y-%m-%d %H:%M:%S")
-                    
-                    # Count rows
-                    try:
-                        df = pd.read_csv(filepath)
-                        rows = len(df)
-                    except:
-                        rows = "Lỗi đọc file"
-                    
-                    file_info.append({
-                        "Tên file": file,
-                        "Kích thước": f"{size:,} bytes",
-                        "Số dòng": rows,
-                        "Lần sửa cuối": modified
-                    })
-                
-                st.table(pd.DataFrame(file_info))
-        
         # Show session state data sizes
         st.subheader("Dữ liệu trong phiên hiện tại")
         
+        # Create table of all data structures in app
         session_data = []
         for key in [
             'products', 'materials', 'recipes', 'orders', 'order_items', 
@@ -2698,13 +2876,70 @@ elif tab_selection == "Quản lý Dữ liệu":
             if key in st.session_state:
                 rows = len(st.session_state[key])
                 columns = len(st.session_state[key].columns) if rows > 0 else 0
+                
+                # Calculate memory usage
+                memory_usage = 0
+                if rows > 0:
+                    memory_usage = st.session_state[key].memory_usage(deep=True).sum()
+                
                 session_data.append({
                     "Tên dữ liệu": key,
                     "Số dòng": rows,
-                    "Số cột": columns
+                    "Số cột": columns,
+                    "Bộ nhớ (bytes)": f"{memory_usage:,.0f}" if memory_usage > 0 else "0"
                 })
         
         st.table(pd.DataFrame(session_data))
+        
+        # MongoDB storage info
+        if "mongo_client" in st.session_state and "mongo_db" in st.session_state:
+            st.subheader("Tình trạng MongoDB")
+            
+            try:
+                mongo_client = st.session_state.mongo_client
+                mongo_db = st.session_state.mongo_db
+                
+                # Define expected collections (same as app data structures)
+                expected_collections = [
+                    "products", "materials", "recipes", "orders", 
+                    "order_items", "invoices", "invoice_status", 
+                    "income", "material_costs"
+                ]
+                
+                # Get status information
+                actual_collections = mongo_db.list_collection_names()
+                
+                # Compare app data with MongoDB data
+                comparison_data = []
+                for key in expected_collections:
+                    # Check if collection exists in MongoDB
+                    exists_in_mongo = key in actual_collections
+                    mongo_count = mongo_db[key].count_documents({}) if exists_in_mongo else 0
+                    
+                    # Check if data exists in session state
+                    exists_in_session = key in st.session_state
+                    session_count = len(st.session_state[key]) if exists_in_session else 0
+                    
+                    # Check if counts match
+                    status = "✓ Đồng bộ" if mongo_count == session_count else "⚠️ Khác biệt"
+                    
+                    comparison_data.append({
+                        "Tên dữ liệu": key,
+                        "MongoDB (số bản ghi)": mongo_count,
+                        "Session (số dòng)": session_count,
+                        "Trạng thái": status
+                    })
+                
+                st.write("#### So sánh dữ liệu MongoDB và Phiên hiện tại:")
+                st.table(pd.DataFrame(comparison_data))
+                
+                # Show warning if any data is out of sync
+                out_of_sync = [item["Tên dữ liệu"] for item in comparison_data if item["Trạng thái"] != "✓ Đồng bộ"]
+                if out_of_sync:
+                    st.warning(f"Dữ liệu không đồng bộ: {', '.join(out_of_sync)}. Hãy sử dụng nút 'Lưu Tất cả Dữ liệu' để cập nhật MongoDB.")
+                
+            except Exception as e:
+                st.error(f"Lỗi khi truy cập MongoDB: {str(e)}")
         
         # Add a force save button
         if st.button("Lưu lại tất cả dữ liệu"):
