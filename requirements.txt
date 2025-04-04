@@ -1,5 +1,5 @@
 streamlit>=1.26.0
-reportlab>=3.6.12
 pillow>=10.0.0
-pymongo==4.3.3
-pandas==2.0.3
+pandas
+reportlab
+pymongo
