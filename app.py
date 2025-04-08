@@ -1765,10 +1765,14 @@ elif tab_selection == "Kho Nguyên liệu":
             # Calculate low stock threshold (10% of initial quantity)
             low_stock_threshold = max(min_threshold, initial_quantity * 0.1)
             
-            # Check stock levels
+            # Calculate used percentage to identify new products
+            used_quantity = material.get('used_quantity', 0)
+            is_new_product = used_quantity == 0 and material['quantity'] > 0
+            
+            # Check stock levels, but skip low stock warning for new products
             if material['quantity'] <= 0:
                 out_of_stock_items.append(material['name'])
-            elif material['quantity'] <= low_stock_threshold:
+            elif material['quantity'] <= low_stock_threshold and not is_new_product:
                 # Include percentage information in the warning
                 remaining_percent = (material['quantity'] / initial_quantity) * 100 if initial_quantity > 0 else 0
                 low_stock_items.append(f"{material['name']} ({remaining_percent:.1f}% còn lại)")
