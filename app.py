@@ -260,7 +260,7 @@ default_invoices = pd.DataFrame(columns=[
 ])
 
 default_income = pd.DataFrame(columns=[
-    'date', 'total_sales', 'cost_of_goods', 'profit'
+    'date', 'total_sales', 'cost_of_goods', 'profit', 'other_costs', 'depreciation_costs', 'material_import_costs'
 ])
 
 default_material_costs = pd.DataFrame(columns=[
@@ -380,52 +380,138 @@ def update_materials_after_order(order_id):
             # Update used quantity
             st.session_state.materials.at[material_idx, 'used_quantity'] += material_quantity_needed
 
-# Function to calculate cost of goods for an order
 def calculate_cost_of_goods(order_id):
-    total_cost = 0
+    """
+    Tính toán chi phí cho một đơn hàng và phân tách thành chi phí nguyên liệu và chi phí khác
+    Trả về dict chứa chi phí nguyên liệu, chi phí khác và tổng chi phí
+    """
+    total_material_cost = 0
+    total_other_cost = 0  # Bao gồm chi phí khác và chi phí khấu hao
+    
     order_items_df = st.session_state.order_items[st.session_state.order_items['order_id'] == order_id]
     
     for _, item in order_items_df.iterrows():
         product_id = item['product_id']
         order_quantity = item['quantity']
         
-        # Get recipe for this product
+        # Lấy chi phí từ thông tin sản phẩm (nếu có)
+        product_other_fee = 0
+        product_depreciation_fee = 0
+        
+        if 'product_costs' in st.session_state and not st.session_state.product_costs.empty:
+            product_cost_data = st.session_state.product_costs[
+                st.session_state.product_costs['product_id'] == product_id
+            ]
+            
+            if not product_cost_data.empty:
+                # Ensure column names are accessed correctly
+                if 'other_fee' in product_cost_data.columns:
+                    product_other_fee = product_cost_data['other_fee'].iloc[0] * order_quantity
+                
+                # Make sure we're accessing the correct column name for depreciation fee
+                if 'Depreciation_fee' in product_cost_data.columns:  # Note the capital 'D'
+                    product_depreciation_fee = product_cost_data['Depreciation_fee'].iloc[0] * order_quantity
+        
+        # Cộng vào tổng chi phí khác
+        total_other_cost += product_other_fee + product_depreciation_fee
+        
+        # Tính chi phí nguyên liệu dựa vào công thức
+        product_material_cost = 0
         product_recipe = st.session_state.recipes[st.session_state.recipes['product_id'] == product_id]
         
-        # Calculate cost for each material in the recipe
-        product_cost = 0
         for _, recipe_item in product_recipe.iterrows():
             material_id = recipe_item['material_id']
             material_quantity = recipe_item['quantity'] * order_quantity
             
-            # Get material price
-            material_price = st.session_state.materials[
+            # Lấy giá nguyên liệu
+            material_data = st.session_state.materials[
                 st.session_state.materials['material_id'] == material_id
-            ]['price_per_unit'].values[0]
+            ]
             
-            product_cost += material_quantity * material_price
+            if not material_data.empty:
+                material_price = material_data['price_per_unit'].iloc[0]
+                product_material_cost += material_quantity * material_price
         
-        total_cost += product_cost
+        total_material_cost += product_material_cost
     
-    return total_cost
+    # Trả về dict chứa chi tiết chi phí
+    return {
+        'material_cost': total_material_cost,
+        'other_cost': total_other_cost,
+        'total_cost': total_material_cost + total_other_cost
+    }
 
 # Function to update income records after completing an order
 def update_income(order_id):
     order_data = st.session_state.orders[st.session_state.orders['order_id'] == order_id].iloc[0]
     order_date = order_data['date']
     
-    # Get product amount and shipping fee
-    product_amount = order_data['total_amount']
-    shipping_fee = order_data.get('shipping_fee', 0)
+    # Get product amount 
+    product_amount = float(order_data['total_amount'])
     
-    # Calculate total with shipping
-    total_amount = product_amount + shipping_fee
+    # Calculate total revenue (không bao gồm phí vận chuyển nữa)
+    total_amount = product_amount
     
-    # Calculate cost of goods (materials only, not shipping)
-    cost_of_goods = calculate_cost_of_goods(order_id)
+    # Calculate cost of materials used (đổi tên từ cost_of_goods)
+    try:
+        cost_of_goods_value = calculate_cost_of_goods(order_id)
+        if isinstance(cost_of_goods_value, dict):
+            # Nếu là dict, lấy giá trị từ dict
+            if len(cost_of_goods_value) > 0:
+                material_cost = float(cost_of_goods_value.get('material_cost', 0))
+                cost_of_goods = material_cost  # Chỉ lấy chi phí nguyên liệu
+            else:
+                cost_of_goods = 0.0
+        else:
+            # Nếu không phải dict, chuyển sang float
+            cost_of_goods = float(cost_of_goods_value)
+    except Exception as e:
+        if show_debug:
+            st.sidebar.error(f"Error calculating material cost: {str(e)}")
+        cost_of_goods = 0.0
     
-    # Calculate profit 
-    profit = total_amount - cost_of_goods - shipping_fee
+    # Lấy thông tin chi phí khác và chi phí khấu hao từ product_costs
+    other_costs = 0.0
+    depreciation_costs = 0.0
+    
+    # Lấy danh sách sản phẩm trong đơn hàng
+    order_items_df = st.session_state.order_items[st.session_state.order_items['order_id'] == order_id]
+    
+    # Nếu có theo dõi chi phí sản phẩm
+    if 'product_costs' in st.session_state and not st.session_state.product_costs.empty:
+        for _, item in order_items_df.iterrows():
+            product_id = item['product_id']
+            quantity = float(item['quantity'])
+            
+            # Tìm thông tin chi phí của sản phẩm
+            product_cost_data = st.session_state.product_costs[st.session_state.product_costs['product_id'] == product_id]
+            
+            if not product_cost_data.empty:
+                # Lấy chi phí khác
+                if 'other_fee' in product_cost_data.columns:
+                    try:
+                        other_fee = float(product_cost_data['other_fee'].iloc[0])
+                        other_costs += other_fee * quantity
+                    except Exception as e:
+                        if show_debug:
+                            st.sidebar.error(f"Error converting other_fee: {str(e)}")
+                
+                # Lấy chi phí khấu hao
+                if 'Depreciation_fee' in product_cost_data.columns:
+                    try:
+                        depreciation_fee = float(product_cost_data['Depreciation_fee'].iloc[0])
+                        depreciation_costs += depreciation_fee * quantity
+                    except Exception as e:
+                        if show_debug:
+                            st.sidebar.error(f"Error converting Depreciation_fee: {str(e)}")
+    
+    # Calculate profit (lợi nhuận trước khi trừ các chi phí nhập hàng và nhân công)
+    try:
+        profit = float(total_amount) - float(cost_of_goods) - float(other_costs) - float(depreciation_costs)
+    except Exception as e:
+        if show_debug:
+            st.sidebar.error(f"Error calculating profit: {str(e)}")
+        profit = 0.0
     
     # Check if date already exists in income DataFrame
     if order_date in st.session_state.income['date'].values:
@@ -433,27 +519,177 @@ def update_income(order_id):
         st.session_state.income.at[idx, 'total_sales'] += total_amount
         st.session_state.income.at[idx, 'cost_of_goods'] += cost_of_goods
         st.session_state.income.at[idx, 'profit'] += profit
-        # Track shipping revenue separately if needed
-        if 'shipping_revenue' in st.session_state.income.columns:
-            st.session_state.income.at[idx, 'shipping_revenue'] += shipping_fee
+        
+        # Track other costs
+        if 'other_costs' in st.session_state.income.columns:
+            st.session_state.income.at[idx, 'other_costs'] += other_costs
         else:
-            st.session_state.income['shipping_revenue'] = 0
-            st.session_state.income.at[idx, 'shipping_revenue'] = shipping_fee
+            st.session_state.income['other_costs'] = 0
+            st.session_state.income.at[idx, 'other_costs'] = other_costs
+            
+        # Track depreciation costs (thay thế shipping_revenue)
+        if 'depreciation_costs' in st.session_state.income.columns:
+            st.session_state.income.at[idx, 'depreciation_costs'] += depreciation_costs
+        else:
+            st.session_state.income['depreciation_costs'] = 0
+            st.session_state.income.at[idx, 'depreciation_costs'] = depreciation_costs
     else:
         # Create new row for this date
-        if 'shipping_revenue' not in st.session_state.income.columns:
-            # Add shipping revenue column if it doesn't exist
-            st.session_state.income['shipping_revenue'] = 0
+        if 'other_costs' not in st.session_state.income.columns:
+            # Add other costs column if it doesn't exist
+            st.session_state.income['other_costs'] = 0
+            
+        if 'depreciation_costs' not in st.session_state.income.columns:
+            # Add depreciation costs column if it doesn't exist
+            st.session_state.income['depreciation_costs'] = 0
             
         new_row = pd.DataFrame({
             'date': [order_date],
             'total_sales': [total_amount],
             'cost_of_goods': [cost_of_goods],
             'profit': [profit],
-            'shipping_revenue': [shipping_fee]
+            'other_costs': [other_costs],
+            'depreciation_costs': [depreciation_costs]
         })
         
         st.session_state.income = pd.concat([st.session_state.income, new_row], ignore_index=True)
+
+
+# Cập nhật hàm adjust_income_after_delete_invoice để giữ lại chi phí khấu hao và chi phí nguyên liệu đã sử dụng
+# Đơn giản hóa cách xử lý khi xóa hóa đơn
+
+def adjust_income_after_delete_invoice(invoice_id, order_id):
+    """Điều chỉnh dữ liệu doanh thu sau khi xóa hóa đơn - xóa các chi phí liên quan đến đơn hàng
+    nhưng giữ lại chi phí nhập hàng (đã được theo dõi riêng trong bảng material_costs)"""
+    try:
+        # Lấy thông tin hóa đơn đã xóa
+        order_data = st.session_state.orders[st.session_state.orders['order_id'] == order_id]
+        
+        if order_data.empty:
+            return False
+            
+        order_data = order_data.iloc[0]
+        order_date = order_data['date']
+        
+        # Lấy thông tin chi tiết đơn hàng
+        order_items = st.session_state.order_items[st.session_state.order_items['order_id'] == order_id]
+        
+        if order_items.empty:
+            return False
+            
+        # 1. Hoàn lại nguyên liệu đã sử dụng
+        restore_materials_after_delete_order(order_id)
+        
+        # 2. Xóa dữ liệu doanh thu liên quan đến đơn hàng (chi phí nhập hàng được theo dõi
+        # trong bảng material_costs riêng và không bị ảnh hưởng)
+        if order_date in st.session_state.income['date'].values:
+            # Tìm dòng doanh thu ứng với ngày của hóa đơn
+            income_rows = st.session_state.income[st.session_state.income['date'] == order_date]
+            
+            if not income_rows.empty:
+                idx = income_rows.index[0]
+                
+                # Lấy tổng giá trị đơn hàng
+                total_amount = float(order_data['total_amount'])
+                
+                # Tính chi phí của đơn hàng
+                try:
+                    cost_result = calculate_cost_of_goods(order_id)
+                    if isinstance(cost_result, dict):
+                        order_cost_of_goods = float(cost_result.get('material_cost', 0))
+                        order_other_costs = float(cost_result.get('other_cost', 0))
+                    else:
+                        order_cost_of_goods = float(cost_result)
+                        order_other_costs = 0
+                except Exception as e:
+                    if show_debug:
+                        st.sidebar.error(f"Error calculating cost_of_goods for deletion: {str(e)}")
+                    order_cost_of_goods = 0
+                    order_other_costs = 0
+                
+                # Tính chi phí khấu hao
+                order_depreciation_costs = 0
+                for _, item in order_items.iterrows():
+                    product_id = item['product_id']
+                    quantity = float(item['quantity'])
+                    
+                    # Lấy thông tin chi phí khấu hao sản phẩm
+                    if 'product_costs' in st.session_state and not st.session_state.product_costs.empty:
+                        product_cost_data = st.session_state.product_costs[st.session_state.product_costs['product_id'] == product_id]
+                        
+                        if not product_cost_data.empty and 'Depreciation_fee' in product_cost_data.columns:
+                            try:
+                                depreciation_fee = float(product_cost_data['Depreciation_fee'].iloc[0])
+                                order_depreciation_costs += depreciation_fee * quantity
+                            except Exception as e:
+                                if show_debug:
+                                    st.sidebar.error(f"Error calculating depreciation: {str(e)}")
+                
+                # Tính lợi nhuận của đơn hàng
+                order_profit = total_amount - order_cost_of_goods - order_other_costs - order_depreciation_costs
+                
+                # Trừ các giá trị từ dòng doanh thu
+                st.session_state.income.at[idx, 'total_sales'] -= total_amount
+                st.session_state.income.at[idx, 'cost_of_goods'] -= order_cost_of_goods
+                st.session_state.income.at[idx, 'profit'] -= order_profit
+                
+                # Trừ chi phí khác nếu có theo dõi
+                if 'other_costs' in st.session_state.income.columns:
+                    st.session_state.income.at[idx, 'other_costs'] -= order_other_costs
+                
+                # Trừ chi phí khấu hao nếu có theo dõi
+                if 'depreciation_costs' in st.session_state.income.columns:
+                    st.session_state.income.at[idx, 'depreciation_costs'] -= order_depreciation_costs
+                
+                # Kiểm tra nếu sau khi trừ, không còn doanh thu nào trong ngày đó
+                if st.session_state.income.at[idx, 'total_sales'] <= 0:
+                    # Xóa dòng income của ngày đó
+                    # Chi phí nhập hàng được theo dõi riêng trong bảng material_costs
+                    st.session_state.income = st.session_state.income.drop(idx)
+            
+            return True
+        return False
+    except Exception as e:
+        if show_debug:
+            st.sidebar.error(f"Error in adjust_income_after_delete_invoice: {str(e)}")
+        return False
+
+def restore_materials_after_delete_order(order_id):
+    """Hoàn lại nguyên liệu đã sử dụng khi xóa đơn hàng"""
+    try:
+        # Lấy chi tiết đơn hàng
+        order_items_df = st.session_state.order_items[st.session_state.order_items['order_id'] == order_id]
+        
+        # Cho mỗi sản phẩm trong đơn hàng
+        for _, item in order_items_df.iterrows():
+            product_id = item['product_id']
+            order_quantity = item['quantity']
+            
+            # Lấy công thức của sản phẩm
+            product_recipe = st.session_state.recipes[st.session_state.recipes['product_id'] == product_id]
+            
+            # Cho mỗi nguyên liệu trong công thức, hoàn lại số lượng đã sử dụng
+            for _, recipe_item in product_recipe.iterrows():
+                material_id = recipe_item['material_id']
+                material_quantity_used = recipe_item['quantity'] * order_quantity
+                
+                # Cập nhật số lượng nguyên liệu (hoàn lại)
+                material_rows = st.session_state.materials[st.session_state.materials['material_id'] == material_id]
+                if not material_rows.empty:
+                    material_idx = material_rows.index[0]
+                    
+                    # Tăng số lượng nguyên liệu
+                    st.session_state.materials.at[material_idx, 'quantity'] += material_quantity_used
+                    
+                    # Giảm lượng đã sử dụng
+                    if 'used_quantity' in st.session_state.materials.columns:
+                        st.session_state.materials.at[material_idx, 'used_quantity'] -= material_quantity_used
+        
+        return True
+    except Exception as e:
+        if show_debug:
+            st.sidebar.error(f"Error restoring materials after delete: {str(e)}")
+        return False
 
 def generate_invoice_content(invoice_id, order_id, as_pdf=False):
     
@@ -1034,8 +1270,11 @@ elif tab_selection == "Theo dõi Doanh thu":
     income_tab1, income_tab2, income_tab3, income_tab4 = st.tabs(["Báo cáo Tổng quan", "Bảng Doanh thu & Chi phí", "Chi phí Nguyên liệu", "Chi phí Nhân công"])
     
     # Helper function to create monthly summary
+    # Cập nhật hàm create_monthly_summary để phản ánh đúng cấu trúc chi phí mới
+
     def create_monthly_summary(income_df, material_costs_df, labor_costs_df, start_date, end_date):
-    # Ensure we have data in the correct format
+        """Tạo bảng tổng hợp doanh thu và chi phí theo tháng"""
+        # Ensure we have data in the correct format
         if income_df.empty and material_costs_df.empty and labor_costs_df.empty:
             return pd.DataFrame()
             
@@ -1059,46 +1298,54 @@ elif tab_selection == "Theo dõi Doanh thu":
             
             # Filter income data for this month
             month_income = income_df[(income_df['date_obj'] >= month_start) & 
-                                    (income_df['date_obj'] <= month_end)]
+                                (income_df['date_obj'] <= month_end)]
             
             # Calculate income values
             total_sales = month_income['total_sales'].sum() if not month_income.empty else 0
             cost_of_goods = month_income['cost_of_goods'].sum() if not month_income.empty else 0
-            sales_profit = month_income['profit'].sum() if not month_income.empty else 0
             
-            # Calculate material costs for this month
+            # Lấy chi phí khác từ income data
+            other_costs = 0
+            if 'other_costs' in month_income.columns:
+                other_costs = month_income['other_costs'].sum() if not month_income.empty else 0
+            
+            # Lấy chi phí khấu hao từ income data
+            depreciation_costs = 0
+            if 'depreciation_costs' in month_income.columns:
+                depreciation_costs = month_income['depreciation_costs'].sum() if not month_income.empty else 0
+            
+            # Calculate material costs for this month (chi phí nhập hàng)
             material_costs = 0
             if not material_costs_df.empty:
                 month_costs = material_costs_df[(material_costs_df['date_obj'] >= month_start) & 
                                             (material_costs_df['date_obj'] <= month_end)]
                 material_costs = month_costs['total_cost'].sum() if not month_costs.empty else 0
             
-            # Calculate labor costs for this month
+            # Calculate labor costs for this month (chi phí nhân công)
             labor_costs = 0
             if not labor_costs_df.empty:
                 month_labor = labor_costs_df[(labor_costs_df['date_obj'] >= month_start) & 
                                         (labor_costs_df['date_obj'] <= month_end)]
                 labor_costs = month_labor['total_cost'].sum() if not month_labor.empty else 0
             
-            # Calculate other costs (now excluding labor as it's separate)
-            other_costs = material_costs  # External costs (non-COGS) excluding labor
+            # Tính tổng chi phí từ tất cả các thành phần
+            total_cost = other_costs + depreciation_costs + material_costs + labor_costs
             
-            # Recalculate the total cost including labor costs
-            total_cost = cost_of_goods + other_costs + labor_costs
-            
-            # Calculate net profit
+            # Tính lợi nhuận ròng
             net_profit = total_sales - total_cost
             
             # Calculate profit margin
             profit_margin = (net_profit / total_sales * 100) if total_sales > 0 else 0
             
+            # Tạo dòng kết quả cho tháng này
             results.append({
                 'Tháng': month_name,
                 'Doanh thu': total_sales,
-                'Chi phí Hàng bán': cost_of_goods,
-                'Chi phí Nguyên liệu': material_costs,
+                'Chi phí Nguyên liệu đã sử dụng': cost_of_goods,
+                'Chi phí Nhập hàng': material_costs,
                 'Chi phí Nhân công': labor_costs,
-                'Chi phí Khác': other_costs - material_costs,  # Other costs excluding materials
+                'Chi phí Khác': other_costs,
+                'Chi phí Khấu hao': depreciation_costs,
                 'Tổng Chi phí': total_cost,
                 'Lợi nhuận': net_profit,
                 'Tỷ suất': profit_margin
@@ -1106,6 +1353,7 @@ elif tab_selection == "Theo dõi Doanh thu":
         
         return pd.DataFrame(results)
     
+    # Cập nhật hiển thị báo cáo doanh thu theo yêu cầu
     with income_tab1:
         if len(st.session_state.income) > 0:
             # Sort by date
@@ -1177,7 +1425,7 @@ elif tab_selection == "Theo dõi Doanh thu":
                 if filtered_income.empty:
                     st.info(f"Không có dữ liệu doanh thu trong khoảng từ {start_date_str} đến {end_date_str}.")
                 else:
-                    # Get material costs for the same period
+                    # Get material costs for the same period (đổi tên thành chi phí nhập hàng)
                     material_costs_in_period = 0
                     filtered_costs = pd.DataFrame()
                     if len(st.session_state.material_costs) > 0:
@@ -1198,18 +1446,20 @@ elif tab_selection == "Theo dõi Doanh thu":
                         ]
                         labor_costs_in_period = filtered_labor['total_cost'].sum() if not filtered_labor.empty else 0
                     
-                    # Get shipping costs from income data
-                    shipping_costs = 0
-                    if 'shipping_revenue' in filtered_income.columns:
-                        shipping_costs = filtered_income['shipping_revenue'].sum()
+                    # Get other costs from income data
+                    other_production_costs = 0
+                    if 'other_costs' in filtered_income.columns:
+                        other_production_costs = filtered_income['other_costs'].sum()
+                    
+                    # Get depreciation costs (thay thế chi phí vận chuyển)
+                    depreciation_costs = 0
+                    if 'depreciation_costs' in filtered_income.columns:
+                        depreciation_costs = filtered_income['depreciation_costs'].sum()
                     
                     # Calculate total profit with all costs considered
                     total_sales = filtered_income['total_sales'].sum()
-                    cost_of_goods = filtered_income['cost_of_goods'].sum()
+                    cost_of_goods = filtered_income['cost_of_goods'].sum()  # Đổi tên thành chi phí nguyên liệu đã sử dụng
                     total_profit = filtered_income['profit'].sum()
-                    
-                    # Recalculate net profit including all costs
-                    net_profit = total_profit - material_costs_in_period - labor_costs_in_period
                     
                     # Display income summary
                     st.subheader("Tổng quan Doanh thu")
@@ -1217,33 +1467,46 @@ elif tab_selection == "Theo dõi Doanh thu":
                     with col1:
                         st.metric("Tổng Doanh thu", f"{total_sales:,.0f} VND")
                     with col2:
-                        st.metric("Chi phí Hàng hóa", f"{cost_of_goods:,.0f} VND")
+                        st.metric("Chi phí Nguyên liệu đã sử dụng", f"{cost_of_goods:,.0f} VND")
                     with col3:
                         st.metric("Lợi nhuận Gộp", f"{total_profit:,.0f} VND")
                     
                     # Display additional costs and net profit
                     st.subheader("Chi phí & Lợi nhuận Ròng")
-                    col1, col2, col3 = st.columns(3)
+                    col1, col2, col3, col4 = st.columns(4)
                     with col1:
                         st.metric("Chi phí Nhân công", f"{labor_costs_in_period:,.0f} VND")
                     with col2:
-                        st.metric("Chi phí Khác", f"{shipping_costs:,.0f} VND")
+                        st.metric("Chi phí Khác", f"{other_production_costs:,.0f} VND")
                     with col3:
-                        total_costs = cost_of_goods + labor_costs_in_period + shipping_costs
+                        # Hiển thị chi phí khấu hao (thay thế chi phí vận chuyển)
+                        st.metric("Chi phí Khấu hao", f"{depreciation_costs:,.0f} VND")
+                    with col4:
+                        # Tính lại tổng chi phí và lợi nhuận ròng theo công thức mới
+                        total_costs = labor_costs_in_period + other_production_costs + depreciation_costs + material_costs_in_period
                         net_profit = total_sales - total_costs
                         st.metric("Lợi nhuận Ròng", f"{net_profit:,.0f} VND")
                     
-                    # Display profit margins
-                    if total_sales > 0:
-                        gross_margin = (total_profit / total_sales) * 100
-                        net_margin = (net_profit / total_sales) * 100
-                        
-                        st.subheader("Tỷ suất Lợi nhuận")
-                        col1, col2 = st.columns(2)
-                        with col1:
-                            st.metric("Tỷ suất Lợi nhuận Gộp", f"{gross_margin:.2f}%")
-                        with col2:
-                            st.metric("Tỷ suất Lợi nhuận Ròng", f"{net_margin:.2f}%")
+                    # Display detailed costs breakdown
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        st.write("#### Chi tiết Chi phí:")
+                        st.write(f"- Chi phí Nguyên liệu đã sử dụng: **{cost_of_goods:,.0f} VND**")
+                        st.write(f"- Chi phí Nhân công: **{labor_costs_in_period:,.0f} VND**")
+                        st.write(f"- Chi phí Khác: **{other_production_costs:,.0f} VND**")
+                        st.write(f"- Chi phí Khấu hao: **{depreciation_costs:,.0f} VND**")
+                        st.write(f"- Chi phí Nhập hàng: **{material_costs_in_period:,.0f} VND**")
+                        st.write(f"- **Tổng Chi phí: {total_costs:,.0f} VND**")
+                    
+                    with col2:
+                        # Display profit margins
+                        if total_sales > 0:
+                            gross_margin = (total_profit / total_sales) * 100
+                            net_margin = (net_profit / total_sales) * 100
+                            
+                            st.write("#### Tỷ suất Lợi nhuận:")
+                            st.write(f"- Tỷ suất Lợi nhuận Gộp: **{gross_margin:.2f}%**")
+                            st.write(f"- Tỷ suất Lợi nhuận Ròng: **{net_margin:.2f}%**")
                     
                     # Chart for income trends
                     if len(filtered_income) > 1:  # Only show chart if we have multiple data points
@@ -1260,15 +1523,21 @@ elif tab_selection == "Theo dõi Doanh thu":
                         chart = {
                             'Ngày': chart_data['formatted_date'].tolist(),
                             'Doanh thu': chart_data['total_sales'].tolist(),
-                            'Chi phí': chart_data['cost_of_goods'].tolist(),
+                            'Chi phí Nguyên liệu': chart_data['cost_of_goods'].tolist(),
                             'Lợi nhuận': chart_data['profit'].tolist()
                         }
+                        
+                        # Thêm chi phí khác và khấu hao vào biểu đồ nếu có
+                        if 'other_costs' in chart_data.columns:
+                            chart['Chi phí Khác'] = chart_data['other_costs'].tolist()
+                        if 'depreciation_costs' in chart_data.columns:
+                            chart['Chi phí Khấu hao'] = chart_data['depreciation_costs'].tolist()
                         
                         chart_df = pd.DataFrame(chart)
                         
                         # Use streamlit's built-in bar chart
                         st.bar_chart(
-                            chart_df.set_index('Ngày')[['Doanh thu', 'Chi phí', 'Lợi nhuận']],
+                            chart_df.set_index('Ngày'),
                             use_container_width=True
                         )
         else:
@@ -1281,6 +1550,7 @@ elif tab_selection == "Theo dõi Doanh thu":
         if len(st.session_state.income) > 0:
             income_df = st.session_state.income.copy()
             material_costs_df = st.session_state.material_costs.copy() if 'material_costs' in st.session_state else pd.DataFrame()
+            labor_costs_df = st.session_state.labor_costs.copy() if 'labor_costs' in st.session_state else pd.DataFrame()
             
             # Date range selection
             try:
@@ -1311,7 +1581,7 @@ elif tab_selection == "Theo dõi Doanh thu":
                         (income_df['date'] <= end_date_str)
                     ]
                     
-                    # Filter material costs data
+                    # Filter material costs data (chi phí nhập hàng)
                     filtered_costs = pd.DataFrame()
                     if not material_costs_df.empty:
                         filtered_costs = material_costs_df[
@@ -1319,16 +1589,32 @@ elif tab_selection == "Theo dõi Doanh thu":
                             (material_costs_df['date'] <= end_date_str)
                         ]
                     
+                    # Filter labor costs data (chi phí nhân công)
+                    filtered_labor = pd.DataFrame()
+                    if not labor_costs_df.empty:
+                        filtered_labor = labor_costs_df[
+                            (labor_costs_df['date'] >= start_date_str) & 
+                            (labor_costs_df['date'] <= end_date_str)
+                        ]
+                    
                     # Group data by date
                     if not filtered_income.empty:
                         # Group income data by date
-                        income_by_date = filtered_income.groupby('date').agg({
+                        income_agg_dict = {
                             'total_sales': 'sum',
                             'cost_of_goods': 'sum',
                             'profit': 'sum'
-                        }).reset_index()
+                        }
                         
-                        # Calculate material costs by date
+                        # Thêm cột chi phí khác và chi phí khấu hao nếu có
+                        if 'other_costs' in filtered_income.columns:
+                            income_agg_dict['other_costs'] = 'sum'
+                        if 'depreciation_costs' in filtered_income.columns:
+                            income_agg_dict['depreciation_costs'] = 'sum'
+                            
+                        income_by_date = filtered_income.groupby('date').agg(income_agg_dict).reset_index()
+                        
+                        # Calculate material costs by date (chi phí nhập hàng)
                         costs_by_date = pd.DataFrame()
                         if not filtered_costs.empty:
                             costs_by_date = filtered_costs.groupby('date').agg({
@@ -1336,17 +1622,47 @@ elif tab_selection == "Theo dõi Doanh thu":
                             }).reset_index()
                             costs_by_date.rename(columns={'total_cost': 'material_cost'}, inplace=True)
                         
+                        # Calculate labor costs by date (chi phí nhân công)
+                        labor_by_date = pd.DataFrame()
+                        if not filtered_labor.empty:
+                            labor_by_date = filtered_labor.groupby('date').agg({
+                                'total_cost': 'sum'
+                            }).reset_index()
+                            labor_by_date.rename(columns={'total_cost': 'labor_cost'}, inplace=True)
+                        
                         # Merge the dataframes
                         chart_data = income_by_date.copy()
+                        
+                        # Thêm chi phí nhập hàng
                         if not costs_by_date.empty:
                             chart_data = chart_data.merge(costs_by_date, on='date', how='left')
                             chart_data['material_cost'] = chart_data['material_cost'].fillna(0)
-                            chart_data['total_cost'] = chart_data['cost_of_goods'] + chart_data['material_cost']
-                            chart_data['net_profit'] = chart_data['profit'] - chart_data['material_cost']
                         else:
                             chart_data['material_cost'] = 0
-                            chart_data['total_cost'] = chart_data['cost_of_goods']
-                            chart_data['net_profit'] = chart_data['profit']
+                        
+                        # Thêm chi phí nhân công
+                        if not labor_by_date.empty:
+                            chart_data = chart_data.merge(labor_by_date, on='date', how='left')
+                            chart_data['labor_cost'] = chart_data['labor_cost'].fillna(0)
+                        else:
+                            chart_data['labor_cost'] = 0
+                        
+                        # Đảm bảo có các cột chi phí khác và khấu hao
+                        if 'other_costs' not in chart_data.columns:
+                            chart_data['other_costs'] = 0
+                        if 'depreciation_costs' not in chart_data.columns:
+                            chart_data['depreciation_costs'] = 0
+                        
+                        # Tính tổng chi phí và lợi nhuận ròng
+                        chart_data['total_cost'] = (
+                            chart_data['cost_of_goods'] +
+                            chart_data['material_cost'] +
+                            chart_data['labor_cost'] +
+                            chart_data['other_costs'] +
+                            chart_data['depreciation_costs']
+                        )
+                        
+                        chart_data['net_profit'] = chart_data['total_sales'] - chart_data['total_cost']
                         
                         # Add formatted date for display
                         chart_data['formatted_date'] = chart_data['date'].apply(
@@ -1357,7 +1673,7 @@ elif tab_selection == "Theo dõi Doanh thu":
                         chart_data = chart_data.sort_values('date')
                         
                         # Display summary metrics
-                        col1, col2, col3, col4 = st.columns(4)
+                        col1, col2, col3 = st.columns(3)
                         
                         with col1:
                             st.metric(
@@ -1368,22 +1684,54 @@ elif tab_selection == "Theo dõi Doanh thu":
                         
                         with col2:
                             st.metric(
-                                "Chi phí Hàng bán", 
-                                f"{chart_data['cost_of_goods'].sum():,.0f} VND",
+                                "Tổng Chi phí", 
+                                f"{chart_data['total_cost'].sum():,.0f} VND",
                                 delta=None
                             )
                         
                         with col3:
                             st.metric(
-                                "Chi phí Nguyên liệu", 
+                                "Lợi nhuận Ròng", 
+                                f"{chart_data['net_profit'].sum():,.0f} VND",
+                                delta=None
+                            )
+                        
+                        # Hiển thị chi tiết về chi phí
+                        st.subheader("Chi tiết Chi phí")
+                        col1, col2, col3, col4, col5 = st.columns(5)
+                        
+                        with col1:
+                            st.metric(
+                                "Chi phí Nguyên liệu đã sử dụng", 
+                                f"{chart_data['cost_of_goods'].sum():,.0f} VND",
+                                delta=None
+                            )
+                        
+                        with col2:
+                            st.metric(
+                                "Chi phí Nhập hàng", 
                                 f"{chart_data['material_cost'].sum():,.0f} VND",
+                                delta=None
+                            )
+                        
+                        with col3:
+                            st.metric(
+                                "Chi phí Nhân công", 
+                                f"{chart_data['labor_cost'].sum():,.0f} VND",
                                 delta=None
                             )
                         
                         with col4:
                             st.metric(
-                                "Lợi nhuận Ròng", 
-                                f"{chart_data['net_profit'].sum():,.0f} VND",
+                                "Chi phí Khác", 
+                                f"{chart_data['other_costs'].sum():,.0f} VND",
+                                delta=None
+                            )
+                        
+                        with col5:
+                            st.metric(
+                                "Chi phí Khấu hao", 
+                                f"{chart_data['depreciation_costs'].sum():,.0f} VND",
                                 delta=None
                             )
                         
@@ -1401,7 +1749,16 @@ elif tab_selection == "Theo dõi Doanh thu":
                         # Option to select metrics to display
                         metrics = st.multiselect(
                             "Chọn các chỉ số để hiển thị",
-                            ["Doanh thu", "Chi phí Hàng bán", "Chi phí Nguyên liệu", "Tổng Chi phí", "Lợi nhuận Ròng"],
+                            [
+                                "Doanh thu", 
+                                "Chi phí Nguyên liệu đã sử dụng", 
+                                "Chi phí Nhập hàng", 
+                                "Chi phí Nhân công", 
+                                "Chi phí Khác",
+                                "Chi phí Khấu hao",
+                                "Tổng Chi phí", 
+                                "Lợi nhuận Ròng"
+                            ],
                             default=["Doanh thu", "Tổng Chi phí", "Lợi nhuận Ròng"],
                             key="income_chart_metrics"
                         )
@@ -1409,8 +1766,11 @@ elif tab_selection == "Theo dõi Doanh thu":
                         # Map selected metrics to dataframe columns
                         metric_columns = {
                             "Doanh thu": "total_sales",
-                            "Chi phí Hàng bán": "cost_of_goods",
-                            "Chi phí Nguyên liệu": "material_cost",
+                            "Chi phí Nguyên liệu đã sử dụng": "cost_of_goods",
+                            "Chi phí Nhập hàng": "material_cost",
+                            "Chi phí Nhân công": "labor_cost",
+                            "Chi phí Khác": "other_costs",
+                            "Chi phí Khấu hao": "depreciation_costs",
                             "Tổng Chi phí": "total_cost",
                             "Lợi nhuận Ròng": "net_profit"
                         }
@@ -1441,8 +1801,11 @@ elif tab_selection == "Theo dõi Doanh thu":
                             display_data.append({
                                 'Ngày': row['formatted_date'],
                                 'Doanh thu': f"{row['total_sales']:,.0f} VND",
-                                'Chi phí Hàng bán': f"{row['cost_of_goods']:,.0f} VND",
-                                'Chi phí Nguyên liệu': f"{row['material_cost']:,.0f} VND",
+                                'Chi phí Nguyên liệu đã sử dụng': f"{row['cost_of_goods']:,.0f} VND",
+                                'Chi phí Nhập hàng': f"{row['material_cost']:,.0f} VND",
+                                'Chi phí Nhân công': f"{row['labor_cost']:,.0f} VND",
+                                'Chi phí Khác': f"{row['other_costs']:,.0f} VND",
+                                'Chi phí Khấu hao': f"{row['depreciation_costs']:,.0f} VND",
                                 'Tổng Chi phí': f"{row['total_cost']:,.0f} VND",
                                 'Lợi nhuận Ròng': f"{row['net_profit']:,.0f} VND"
                             })
@@ -1457,9 +1820,10 @@ elif tab_selection == "Theo dõi Doanh thu":
                 st.info("Vui lòng kiểm tra dữ liệu doanh thu và chi phí.")
         else:
             st.info("Chưa có dữ liệu doanh thu để hiển thị biểu đồ.")
+
     
     with income_tab3:
-        st.subheader("Chi phí Nguyên liệu")
+        st.subheader("Chi phí nhập Nguyên liệu")
         
         if len(st.session_state.material_costs) > 0:
             # Display material costs
@@ -1543,11 +1907,11 @@ elif tab_selection == "Theo dõi Doanh thu":
                 
                 # Check if we have data in the selected range
                 if filtered_costs_df.empty:
-                    st.info(f"Không có dữ liệu chi phí nguyên liệu trong khoảng từ {start_date_str} đến {end_date_str}.")
+                    st.info(f"Không có dữ liệu chi phí nhập nguyên liệu trong khoảng từ {start_date_str} đến {end_date_str}.")
                 else:
                     # Show total cost for period
                     total_period_cost = filtered_costs_df['total_cost'].sum()
-                    st.metric("Tổng Chi phí Nguyên liệu", f"{total_period_cost:,.0f} VND")
+                    st.metric("Tổng Chi phí nhập Nguyên liệu", f"{total_period_cost:,.0f} VND")
                     
                     # Display filtered costs
                     st.dataframe(filtered_costs_display)
@@ -1577,7 +1941,7 @@ elif tab_selection == "Theo dõi Doanh thu":
                     st.subheader("Chi phí theo Nguyên liệu")
                     st.dataframe(material_summary)
         else:
-            st.info("Chưa có dữ liệu chi phí nguyên liệu. Vui lòng nhập nguyên liệu vào kho để theo dõi chi phí.")
+            st.info("Chưa có dữ liệu chi phí nhập nguyên liệu. Vui lòng nhập nguyên liệu vào kho để theo dõi chi phí.")
     
     with income_tab4:
         st.subheader("Chi phí Nhân công")
@@ -1756,30 +2120,26 @@ elif tab_selection == "Kho Nguyên liệu":
         
         for _, material in st.session_state.materials.iterrows():
             # Get initial quantity - use price_per_unit * quantity as a rough estimate of initial value
-            # This assumes materials are typically purchased in standard amounts
             initial_quantity = material.get('initial_quantity', None)
             
             # If initial_quantity is not available, estimate it from used_quantity
             if initial_quantity is None or initial_quantity <= 0:
                 initial_quantity = material['quantity'] + material.get('used_quantity', 0)
-                
-            # Set a minimum threshold for small quantities (e.g., at least 1 unit)
-            min_threshold = 1
+                    
+            # Calculate exact percentage remaining
+            percentage_remaining = (material['quantity'] / initial_quantity * 100) if initial_quantity > 0 else 100
             
-            # Calculate low stock threshold (10% of initial quantity)
-            low_stock_threshold = max(min_threshold, initial_quantity * 0.1)
-            
-            # Calculate used percentage to identify new products
-            used_quantity = material.get('used_quantity', 0)
-            is_new_product = used_quantity == 0 and material['quantity'] > 0
-            
-            # Check stock levels, but skip low stock warning for new products
+            # Check stock levels more precisely
             if material['quantity'] <= 0:
                 out_of_stock_items.append(material['name'])
-            elif material['quantity'] <= low_stock_threshold and not is_new_product:
-                # Include percentage information in the warning
-                remaining_percent = (material['quantity'] / initial_quantity) * 100 if initial_quantity > 0 else 0
-                low_stock_items.append(f"{material['name']} ({remaining_percent:.1f}% còn lại)")
+            elif percentage_remaining <= 10.0:  # Exactly 10% or less
+                # Skip this warning for new products
+                used_quantity = material.get('used_quantity', 0)
+                is_new_product = used_quantity == 0 and material['quantity'] > 0
+                
+                if not is_new_product:
+                    # Format percentage to exactly 1 decimal place for display
+                    low_stock_items.append(f"{material['name']} ({percentage_remaining:.1f}% còn lại)")
         
         # Show notifications for out-of-stock items
         if out_of_stock_items:
@@ -1787,7 +2147,7 @@ elif tab_selection == "Kho Nguyên liệu":
         
         # Show notifications for low stock items
         if low_stock_items:
-            st.warning(f"⚠️ **Cảnh báo: Các nguyên liệu sắp hết hàng (dưới 10% số lượng ban đầu):** {', '.join(low_stock_items)}")
+            st.warning(f"⚠️ **Cảnh báo: Các nguyên liệu sắp hết hàng (10% hoặc ít hơn số lượng ban đầu):** {', '.join(low_stock_items)}")
     
     # Initialize material costs tracking if not exists
     if 'material_costs' not in st.session_state:
@@ -1820,20 +2180,16 @@ elif tab_selection == "Kho Nguyên liệu":
                 if initial_quantity is None or initial_quantity <= 0:
                     initial_quantity = quantity + row.get('used_quantity', 0)
                 
-                # Set a minimum threshold for small quantities
-                min_threshold = 1
-                
-                # Calculate thresholds as percentages of initial quantity
-                low_threshold = max(min_threshold, initial_quantity * 0.1)  # 10%
-                medium_threshold = max(min_threshold * 3, initial_quantity * 0.3)  # 30%
+                # Calculate exact percentage remaining
+                percentage_remaining = (quantity / initial_quantity * 100) if initial_quantity > 0 else 100
                 
                 # Check if it's a new product (nothing used yet)
                 is_new_product = row.get('used_quantity', 0) == 0 and quantity > 0
                 
-                # Determine status based on thresholds
-                if quantity <= low_threshold and not is_new_product:
+                # Determine status based on exact percentage
+                if percentage_remaining <= 10.0 and not is_new_product:  # Exactly 10% or less
                     return "Sắp hết hàng"
-                elif quantity <= medium_threshold and not is_new_product:
+                elif percentage_remaining <= 30.0 and not is_new_product:  # Between 10% and 30%
                     return "Hàng trung bình"
                 else:
                     return "Còn hàng"
@@ -1847,8 +2203,8 @@ elif tab_selection == "Kho Nguyên liệu":
                 'Mã nguyên liệu': materials_display['material_id'],
                 'Tên': materials_display['name'],
                 'Đơn vị': materials_display['unit'],
-                'Số lượng': materials_display['quantity'],
-                'Đã sử dụng': materials_display['used_quantity'],
+                'Số lượng': materials_display['quantity'].apply(lambda x: f"{x:.5f}"),  # Exactly 5 decimal places
+                'Đã sử dụng': materials_display['used_quantity'].apply(lambda x: f"{x:.5f}"),  # Exactly 5 decimal places
                 'Giá/Đơn vị': [f"{price:,.0f} VND" for price in materials_display['price_per_unit']],
                 'Trạng thái': materials_display['Trạng thái']
             })
@@ -2474,10 +2830,11 @@ elif tab_selection == "Quản lý Sản phẩm":
                     'material_cost': [total_material_cost],
                     'production_fee': [production_fee],
                     'other_fee': [other_fee],
+                    'Depreciation_fee': [Depreciation_fee],  # Make sure this line is present with correct capitalization
                     'total_cost': [total_cost],
                     'price': [new_product_price]
                 })
-                
+
                 st.session_state.product_costs = pd.concat([st.session_state.product_costs, new_cost_info], ignore_index=True)
                 
                 # Save products, recipes, and product costs data
@@ -3004,6 +3361,11 @@ elif tab_selection == "Quản lý Hóa đơn":
                     
                     if st.button("Xóa Hóa đơn", key="confirm_delete_invoice"):
                         if delete_confirmed:
+                            # 0. Điều chỉnh doanh thu và hoàn lại nguyên liệu trước khi xóa các đối tượng
+                            success = adjust_income_after_delete_invoice(selected_invoice_id, order_id)
+                            if success and show_debug:
+                                st.sidebar.success("Đã điều chỉnh doanh thu và hoàn lại nguyên liệu thành công")
+                            
                             # 1. Xóa thông tin trạng thái hóa đơn
                             if 'invoice_status' in st.session_state and not st.session_state.invoice_status.empty:
                                 st.session_state.invoice_status = st.session_state.invoice_status[
@@ -3029,6 +3391,8 @@ elif tab_selection == "Quản lý Hóa đơn":
                             # 4. Lưu các thay đổi
                             save_dataframe(st.session_state.invoices, "invoices.csv")
                             save_dataframe(st.session_state.invoice_status, "invoice_status.csv")
+                            save_dataframe(st.session_state.income, "income.csv")
+                            save_dataframe(st.session_state.materials, "materials.csv")
                             
                             if delete_order_too:
                                 save_dataframe(st.session_state.orders, "orders.csv")
@@ -3041,8 +3405,6 @@ elif tab_selection == "Quản lý Hóa đơn":
                             st.rerun()
                         else:
                             st.error("Vui lòng xác nhận bằng cách đánh dấu vào ô xác nhận trước khi xóa.")
-        else:
-            st.info("Không có hóa đơn nào để xóa. Tạo đơn hàng để tạo hóa đơn trước.")
 
 # Data Management and Debug Tab
 elif tab_selection == "Quản lý Dữ liệu":
