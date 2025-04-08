@@ -24,7 +24,6 @@ from datetime import date
 import pymongo
 import pandas as pd
 
-
 # Suppress the ScriptRunContext warnings
 warnings.filterwarnings('ignore', message='.*missing ScriptRunContext.*')
 
@@ -291,6 +290,10 @@ default_invoice_status = pd.DataFrame(columns=[
     'invoice_id', 'is_completed', 'completion_date', 'notes', 'payment_status'
 ])
 
+default_labor_costs = pd.DataFrame(columns=[
+    'date', 'worker_name', 'description', 'hours', 'unit_rate', 'total_cost', 'notes'
+])
+
 # Load data from files or use defaults
 if 'products' not in st.session_state:
     st.session_state.products = load_dataframe("products.csv", default_products)
@@ -318,7 +321,10 @@ if 'material_costs' not in st.session_state:
 
 if 'invoice_status' not in st.session_state:
     st.session_state.invoice_status = load_dataframe("invoice_status.csv", default_invoice_status)
-    
+
+if 'labor_costs' not in st.session_state:
+    st.session_state.labor_costs = load_dataframe("labor_costs.csv", default_labor_costs)
+
 # Function to ensure we have Unicode support for Vietnamese
 def setup_vietnamese_font():
     try:
@@ -364,6 +370,9 @@ def save_all_data():
     
     if 'product_costs' in st.session_state:
         save_dataframe(st.session_state.product_costs, "product_costs.csv") 
+
+    if 'labor_costs' in st.session_state:
+        save_dataframe(st.session_state.labor_costs, "labor_costs.csv")
 
 # Function to update material quantities after an order
 def update_materials_after_order(order_id):
@@ -466,12 +475,6 @@ def update_income(order_id):
         st.session_state.income = pd.concat([st.session_state.income, new_row], ignore_index=True)
 
 def generate_invoice_content(invoice_id, order_id, as_pdf=False):
-    """Generate invoice content either as text or PDF that can span multiple pages as needed"""
-    import io
-    import os
-    from reportlab.pdfgen import canvas
-    from reportlab.lib.pagesizes import A3
-    from reportlab.lib.units import cm
     
     order_data = st.session_state.orders[st.session_state.orders['order_id'] == order_id].iloc[0]
     order_items = st.session_state.order_items[st.session_state.order_items['order_id'] == order_id]
@@ -680,19 +683,6 @@ def generate_invoice_content(invoice_id, order_id, as_pdf=False):
         c.drawRightString(right_margin, y_position, f"{total_amount:,.0f}")
         y_position -= 2*cm
         
-        # Draw separator line
-        y_position = check_page_break(y_position)
-        c.setLineWidth(2)
-        c.line(left_margin, y_position, right_margin, y_position)
-        y_position -= 2*cm
-        
-        # Payment method with proper alignment
-        y_position = check_page_break(y_position)
-        set_font('normal', 30)  # Increased font size for A3
-        c.drawString(left_margin, y_position, "Phương thức thanh toán")
-        c.drawRightString(right_margin, y_position, "Tiền mặt")
-        y_position -= 3*cm
-        
         # Check if we need to start a new page for QR code and thank you message
         # Need at least 15cm for QR code, payment info, and thank you message
         if y_position < 15*cm:
@@ -706,7 +696,7 @@ def generate_invoice_content(invoice_id, order_id, as_pdf=False):
             # Check if file exists before trying to draw it
             if os.path.exists(qr_image_path):
                 # Draw QR code with proper positioning
-                qr_size = 8*cm  # QR code size
+                qr_size = 14*cm  # QR code size
                 
                 # Calculate position - center of page horizontally
                 qr_x = (width - qr_size) / 2
@@ -714,15 +704,11 @@ def generate_invoice_content(invoice_id, order_id, as_pdf=False):
                 # Draw QR code centered on the page
                 c.drawImage(qr_image_path, qr_x, y_position - 8*cm, width=qr_size, height=qr_size)
                 
-                # Draw separator line above QR code
-                c.setLineWidth(1)
-                c.line(left_margin, y_position, right_margin, y_position)
-                
                 # Draw payment information centered below QR code
-                set_font('bold', 24)
+                set_font('bold', 32)
                 c.drawCentredString(width/2, y_position - 9*cm, "Quét để thanh toán")
                 
-                set_font('normal', 22)
+                set_font('normal', 30)
                 # Account information
                 account_number = "0011000597767"
                 account_name = "NGUYỄN VƯƠNG HẰNG"
@@ -735,13 +721,13 @@ def generate_invoice_content(invoice_id, order_id, as_pdf=False):
                 
                 # Thank you message with proper formatting and quotes
                 set_font('normal', 36)  # Increased font size for A3
-                c.drawCentredString(width/2, y_position - 15*cm, '" XIN CẢM ƠN QUÝ KHÁCH."')
+                c.drawCentredString(width/2, y_position - 15*cm, 'XIN CẢM ƠN QUÝ KHÁCH')
         except Exception as e:
             # More descriptive error handling
             print(f"QR code error: {str(e)}")
             # If QR code insertion fails, still draw the thank you message
             set_font('normal', 36)
-            c.drawCentredString(width/2, y_position - 4*cm, '" XIN CẢM ƠN QUÝ KHÁCH."')
+            c.drawCentredString(width/2, y_position - 4*cm, 'XIN CẢM ƠN QUÝ KHÁCH')
         
         # Save the PDF
         c.save()
@@ -1041,18 +1027,20 @@ elif tab_selection == "Theo dõi Doanh thu":
             'date', 'material_id', 'quantity', 'total_cost', 'supplier'
         ])
     
-    income_tab1, income_tab2, income_tab3 = st.tabs(["Báo cáo Tổng quan", "Bảng Doanh thu & Chi phí", "Chi phí Nguyên liệu"])
+    income_tab1, income_tab2, income_tab3, income_tab4 = st.tabs(["Báo cáo Tổng quan", "Bảng Doanh thu & Chi phí", "Chi phí Nguyên liệu", "Chi phí Nhân công"])
     
     # Helper function to create monthly summary
-    def create_monthly_summary(income_df, material_costs_df, start_date, end_date):
-        # Ensure we have data in the correct format
-        if income_df.empty and material_costs_df.empty:
+    def create_monthly_summary(income_df, material_costs_df, labor_costs_df, start_date, end_date):
+    # Ensure we have data in the correct format
+        if income_df.empty and material_costs_df.empty and labor_costs_df.empty:
             return pd.DataFrame()
             
         # Convert date strings to datetime objects for proper handling
         income_df['date_obj'] = pd.to_datetime(income_df['date'])
         if not material_costs_df.empty:
             material_costs_df['date_obj'] = pd.to_datetime(material_costs_df['date'])
+        if not labor_costs_df.empty:
+            labor_costs_df['date_obj'] = pd.to_datetime(labor_costs_df['date'])
         
         # Create a date range from start to end
         date_range = pd.date_range(start=start_date, end=end_date, freq='MS')  # MS = Month Start
@@ -1081,11 +1069,18 @@ elif tab_selection == "Theo dõi Doanh thu":
                                             (material_costs_df['date_obj'] <= month_end)]
                 material_costs = month_costs['total_cost'].sum() if not month_costs.empty else 0
             
-            # Calculate other costs (includes marketing, production, and other fees)
-            other_costs = material_costs  # All external costs (non-COGS) go here
+            # Calculate labor costs for this month
+            labor_costs = 0
+            if not labor_costs_df.empty:
+                month_labor = labor_costs_df[(labor_costs_df['date_obj'] >= month_start) & 
+                                        (labor_costs_df['date_obj'] <= month_end)]
+                labor_costs = month_labor['total_cost'].sum() if not month_labor.empty else 0
             
-            # Recalculate the total cost as Chi phí hàng hóa + Chi phí khác
-            total_cost = cost_of_goods + other_costs
+            # Calculate other costs (now excluding labor as it's separate)
+            other_costs = material_costs  # External costs (non-COGS) excluding labor
+            
+            # Recalculate the total cost including labor costs
+            total_cost = cost_of_goods + other_costs + labor_costs
             
             # Calculate net profit
             net_profit = total_sales - total_cost
@@ -1093,12 +1088,13 @@ elif tab_selection == "Theo dõi Doanh thu":
             # Calculate profit margin
             profit_margin = (net_profit / total_sales * 100) if total_sales > 0 else 0
             
-            # Add to results
             results.append({
                 'Tháng': month_name,
                 'Doanh thu': total_sales,
                 'Chi phí Hàng bán': cost_of_goods,
-                'Chi phí Khác': other_costs,
+                'Chi phí Nguyên liệu': material_costs,
+                'Chi phí Nhân công': labor_costs,
+                'Chi phí Khác': other_costs - material_costs,  # Other costs excluding materials
                 'Tổng Chi phí': total_cost,
                 'Lợi nhuận': net_profit,
                 'Tỷ suất': profit_margin
@@ -1188,11 +1184,28 @@ elif tab_selection == "Theo dõi Doanh thu":
                         ]
                         material_costs_in_period = filtered_costs['total_cost'].sum()
                     
-                    # Calculate total profit with material costs considered
+                    # Get labor costs for the same period
+                    labor_costs_in_period = 0
+                    if 'labor_costs' in st.session_state and len(st.session_state.labor_costs) > 0:
+                        labor_costs_df = st.session_state.labor_costs.copy()
+                        filtered_labor = labor_costs_df[
+                            (labor_costs_df['date'] >= start_date_str) & 
+                            (labor_costs_df['date'] <= end_date_str)
+                        ]
+                        labor_costs_in_period = filtered_labor['total_cost'].sum() if not filtered_labor.empty else 0
+                    
+                    # Get shipping costs from income data
+                    shipping_costs = 0
+                    if 'shipping_revenue' in filtered_income.columns:
+                        shipping_costs = filtered_income['shipping_revenue'].sum()
+                    
+                    # Calculate total profit with all costs considered
                     total_sales = filtered_income['total_sales'].sum()
                     cost_of_goods = filtered_income['cost_of_goods'].sum()
                     total_profit = filtered_income['profit'].sum()
-                    net_profit = total_profit - material_costs_in_period
+                    
+                    # Recalculate net profit including all costs
+                    net_profit = total_profit - material_costs_in_period - labor_costs_in_period
                     
                     # Display income summary
                     st.subheader("Tổng quan Doanh thu")
@@ -1208,11 +1221,11 @@ elif tab_selection == "Theo dõi Doanh thu":
                     st.subheader("Chi phí & Lợi nhuận Ròng")
                     col1, col2, col3 = st.columns(3)
                     with col1:
-                        st.metric("Chi phí Khác", f"{material_costs_in_period:,.0f} VND")
+                        st.metric("Chi phí Nhân công", f"{labor_costs_in_period:,.0f} VND")
                     with col2:
-                        total_costs = cost_of_goods + material_costs_in_period
-                        st.metric("Tổng Chi phí", f"{total_costs:,.0f} VND")
+                        st.metric("Chi phí Khác", f"{shipping_costs:,.0f} VND")
                     with col3:
+                        total_costs = cost_of_goods + labor_costs_in_period + shipping_costs
                         net_profit = total_sales - total_costs
                         st.metric("Lợi nhuận Ròng", f"{net_profit:,.0f} VND")
                     
@@ -1561,6 +1574,168 @@ elif tab_selection == "Theo dõi Doanh thu":
                     st.dataframe(material_summary)
         else:
             st.info("Chưa có dữ liệu chi phí nguyên liệu. Vui lòng nhập nguyên liệu vào kho để theo dõi chi phí.")
+    
+    with income_tab4:
+        st.subheader("Chi phí Nhân công")
+        
+        # Add form to record new labor costs
+        st.write("### Thêm Chi phí Nhân công")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            # Date of labor cost
+            labor_date = st.date_input(
+                "Ngày", 
+                value=datetime.date.today(),
+                key="labor_cost_date"
+            ).strftime("%Y-%m-%d")
+            
+            # Worker name
+            worker_name = st.text_input("Người thực hiện", key="worker_name")
+        
+        with col2:
+            # Job description
+            job_description = st.text_input("Mô tả công việc", key="job_description")
+            
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            # Hours or quantity
+            hours = st.number_input(
+                "Số giờ/khối lượng", 
+                min_value=0.1, 
+                value=1.0, 
+                step=0.1,
+                key="labor_hours"
+            )
+        
+        with col2:
+            # Rate per hour/unit
+            rate = st.number_input(
+                "Đơn giá (VND/đơn vị)", 
+                min_value=1000, 
+                value=50000, 
+                step=5000,
+                key="labor_rate"
+            )
+            
+        with col3:
+            # Calculate total cost automatically
+            total_labor_cost = hours * rate
+            st.write("**Tổng chi phí:**")
+            st.write(f"{total_labor_cost:,.0f} VND")
+        
+        # Additional notes
+        notes = st.text_area("Ghi chú", key="labor_notes")
+        
+        # Add button to save labor cost
+        if st.button("Lưu Chi phí Nhân công"):
+            if not worker_name:
+                st.error("Vui lòng nhập tên người thực hiện")
+            elif not job_description:
+                st.error("Vui lòng nhập mô tả công việc")
+            else:
+                # Add new labor cost record
+                new_labor_cost = pd.DataFrame({
+                    'date': [labor_date],
+                    'worker_name': [worker_name],
+                    'description': [job_description],
+                    'hours': [hours],
+                    'unit_rate': [rate],
+                    'total_cost': [total_labor_cost],
+                    'notes': [notes]
+                })
+                
+                # Update session state
+                if 'labor_costs' not in st.session_state:
+                    st.session_state.labor_costs = new_labor_cost
+                else:
+                    st.session_state.labor_costs = pd.concat([st.session_state.labor_costs, new_labor_cost], ignore_index=True)
+                
+                st.success(f"Đã lưu chi phí nhân công: {total_labor_cost:,.0f} VND")
+                
+                # Save to storage
+                save_dataframe(st.session_state.labor_costs, "labor_costs.csv")
+        
+         # Display existing labor costs
+        if 'labor_costs' in st.session_state and not st.session_state.labor_costs.empty:
+            st.write("### Chi phí Nhân công Đã Lưu")
+            
+            # Format labor costs for display
+            labor_costs_df = st.session_state.labor_costs.copy()
+            
+            # Date filter for labor costs
+            try:
+                # Get min and max dates from data
+                min_labor_date_str = labor_costs_df['date'].min()
+                max_labor_date_str = labor_costs_df['date'].max()
+                
+                min_labor_date = datetime.datetime.strptime(min_labor_date_str, '%Y-%m-%d').date()
+                max_labor_date = datetime.datetime.strptime(max_labor_date_str, '%Y-%m-%d').date()
+                
+                # Create date input with valid defaults
+                labor_date_range = st.date_input(
+                    "Chọn Khoảng thời gian",
+                    [min_labor_date, max_labor_date],
+                    min_value=min_labor_date,
+                    max_value=max_labor_date,
+                    key="labor_cost_date_range"
+                )
+                
+                if isinstance(labor_date_range, (list, tuple)) and len(labor_date_range) == 2:
+                    start_date, end_date = labor_date_range
+                    
+                    # Convert dates to string format for filtering
+                    start_date_str = start_date.strftime('%Y-%m-%d')
+                    end_date_str = end_date.strftime('%Y-%m-%d')
+                    
+                    # Filter labor costs
+                    filtered_labor_costs = labor_costs_df[
+                        (labor_costs_df['date'] >= start_date_str) & 
+                        (labor_costs_df['date'] <= end_date_str)
+                    ]
+                    
+                    if not filtered_labor_costs.empty:
+                        # Display total labor cost for the period
+                        total_period_labor = filtered_labor_costs['total_cost'].sum()
+                        st.metric("Tổng Chi phí Nhân công", f"{total_period_labor:,.0f} VND")
+                        
+                        # Format for display
+                        display_labor_costs = pd.DataFrame({
+                            'Ngày': filtered_labor_costs['date'],
+                            'Người thực hiện': filtered_labor_costs['worker_name'],
+                            'Mô tả công việc': filtered_labor_costs['description'],
+                            'Số giờ/khối lượng': filtered_labor_costs['hours'],
+                            'Đơn giá': filtered_labor_costs['unit_rate'].apply(lambda x: f"{x:,.0f} VND"),
+                            'Tổng chi phí': filtered_labor_costs['total_cost'].apply(lambda x: f"{x:,.0f} VND")
+                        })
+                        
+                        # Display the filtered data
+                        st.dataframe(display_labor_costs)
+                        
+                        # Group by worker
+                        worker_grouped = filtered_labor_costs.groupby('worker_name').agg({
+                            'hours': 'sum',
+                            'total_cost': 'sum'
+                        }).reset_index()
+                        
+                        # Format for display
+                        worker_summary = pd.DataFrame({
+                            'Người thực hiện': worker_grouped['worker_name'],
+                            'Tổng giờ/khối lượng': worker_grouped['hours'],
+                            'Tổng chi phí': worker_grouped['total_cost'].apply(lambda x: f"{x:,.0f} VND")
+                        })
+                        
+                        st.subheader("Chi phí theo Người thực hiện")
+                        st.dataframe(worker_summary)
+                    else:
+                        st.info(f"Không có dữ liệu chi phí nhân công trong khoảng từ {start_date_str} đến {end_date_str}.")
+            except Exception as e:
+                st.error(f"Lỗi khi xử lý dữ liệu chi phí nhân công: {str(e)}")
+                st.info("Vui lòng kiểm tra lại dữ liệu chi phí nhân công.")
+        else:
+            st.info("Chưa có dữ liệu chi phí nhân công. Vui lòng thêm chi phí nhân công để theo dõi.")
 
 # Materials Inventory Tab - Updated with Out-of-Stock Notifications
 elif tab_selection == "Kho Nguyên liệu":
@@ -1576,10 +1751,27 @@ elif tab_selection == "Kho Nguyên liệu":
         low_stock_items = []
         
         for _, material in st.session_state.materials.iterrows():
+            # Get initial quantity - use price_per_unit * quantity as a rough estimate of initial value
+            # This assumes materials are typically purchased in standard amounts
+            initial_quantity = material.get('initial_quantity', None)
+            
+            # If initial_quantity is not available, estimate it from used_quantity
+            if initial_quantity is None or initial_quantity <= 0:
+                initial_quantity = material['quantity'] + material.get('used_quantity', 0)
+                
+            # Set a minimum threshold for small quantities (e.g., at least 1 unit)
+            min_threshold = 1
+            
+            # Calculate low stock threshold (10% of initial quantity)
+            low_stock_threshold = max(min_threshold, initial_quantity * 0.1)
+            
+            # Check stock levels
             if material['quantity'] <= 0:
                 out_of_stock_items.append(material['name'])
-            elif material['quantity'] <= 5:
-                low_stock_items.append(material['name'])
+            elif material['quantity'] <= low_stock_threshold:
+                # Include percentage information in the warning
+                remaining_percent = (material['quantity'] / initial_quantity) * 100 if initial_quantity > 0 else 0
+                low_stock_items.append(f"{material['name']} ({remaining_percent:.1f}% còn lại)")
         
         # Show notifications for out-of-stock items
         if out_of_stock_items:
@@ -1587,7 +1779,7 @@ elif tab_selection == "Kho Nguyên liệu":
         
         # Show notifications for low stock items
         if low_stock_items:
-            st.warning(f"⚠️ **Cảnh báo: Các nguyên liệu sắp hết hàng:** {', '.join(low_stock_items)}")
+            st.warning(f"⚠️ **Cảnh báo: Các nguyên liệu sắp hết hàng (dưới 10% số lượng ban đầu):** {', '.join(low_stock_items)}")
     
     # Initialize material costs tracking if not exists
     if 'material_costs' not in st.session_state:
