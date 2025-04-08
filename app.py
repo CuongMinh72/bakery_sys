@@ -2681,7 +2681,7 @@ elif tab_selection == "Quản lý Sản phẩm":
         new_product_category = st.text_input("Phân loại", key="new_product_category")
 
         # Add unit selection for products
-        unit_options_product = ["cái", "hộp", "cân", "miếng", "gói", "phần", "Khác"]
+        unit_options_product = ["cái", "hộp", "kg", "miếng", "gói", "phần", "Khác"]
         selected_unit_option_product = st.selectbox("Đơn vị Sản phẩm", options=unit_options_product, key="product_unit_select")
 
         if selected_unit_option_product == "Khác":
