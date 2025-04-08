@@ -236,7 +236,7 @@ ensure_mongodb_connection()
 
 # Default dataframes (will be used if files don't exist)
 default_products = pd.DataFrame(columns=[
-    'product_id', 'name', 'price', 'category'
+    'product_id', 'name', 'price', 'category', 'unit' 
 ])
 
 default_materials = pd.DataFrame(columns=[
@@ -2583,6 +2583,7 @@ elif tab_selection == "Quản lý Sản phẩm":
             products_display = pd.DataFrame({
                 'Mã sản phẩm': st.session_state.products['product_id'],
                 'Tên sản phẩm': st.session_state.products['name'],
+                'Đơn vị': st.session_state.products['unit'] if 'unit' in st.session_state.products.columns else "",
                 'Giá': [f"{price:,.0f} VND" for price in st.session_state.products['price']],
                 'Phân loại': st.session_state.products['category']
             })
@@ -2678,6 +2679,15 @@ elif tab_selection == "Quản lý Sản phẩm":
         new_product_id = st.text_input("Mã Sản phẩm (vd: P005)", key="new_product_id")
         new_product_name = st.text_input("Tên Sản phẩm", key="new_product_name")
         new_product_category = st.text_input("Phân loại", key="new_product_category")
+
+        # Add unit selection for products
+        unit_options_product = ["cái", "hộp", "cân", "miếng", "gói", "phần", "Khác"]
+        selected_unit_option_product = st.selectbox("Đơn vị Sản phẩm", options=unit_options_product, key="product_unit_select")
+
+        if selected_unit_option_product == "Khác":
+            product_unit = st.text_input("Nhập đơn vị sản phẩm mới:", key="custom_product_unit")
+        else:
+            product_unit = selected_unit_option_product
         
         # Add direct production fee and other costs inputs
         col1, col2, col3 = st.columns(3)
@@ -2802,7 +2812,8 @@ elif tab_selection == "Quản lý Sản phẩm":
                     'product_id': [new_product_id],
                     'name': [new_product_name],
                     'price': [new_product_price],
-                    'category': [new_product_category]
+                    'category': [new_product_category],
+                    'unit': [product_unit if selected_unit_option_product != "Khác" else product_unit]  # Add the unit field
                 })
                 
                 st.session_state.products = pd.concat([st.session_state.products, new_product], ignore_index=True)
