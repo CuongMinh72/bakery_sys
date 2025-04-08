@@ -1802,17 +1802,41 @@ elif tab_selection == "Kho Nguyên liệu":
             materials_display = st.session_state.materials.copy()
             
             # Add status column
-            def get_status(quantity):
+            def get_status(row):
+                quantity = row['quantity']
+                
+                # If quantity is zero or negative, it's out of stock
                 if quantity <= 0:
                     return "Hết hàng"
-                elif quantity <= 5:
+                
+                # Get initial quantity from the row or calculate it
+                initial_quantity = row.get('initial_quantity', None)
+                
+                # If initial_quantity is not available, estimate it from used_quantity
+                if initial_quantity is None or initial_quantity <= 0:
+                    initial_quantity = quantity + row.get('used_quantity', 0)
+                
+                # Set a minimum threshold for small quantities
+                min_threshold = 1
+                
+                # Calculate thresholds as percentages of initial quantity
+                low_threshold = max(min_threshold, initial_quantity * 0.1)  # 10%
+                medium_threshold = max(min_threshold * 3, initial_quantity * 0.3)  # 30%
+                
+                # Check if it's a new product (nothing used yet)
+                is_new_product = row.get('used_quantity', 0) == 0 and quantity > 0
+                
+                # Determine status based on thresholds
+                if quantity <= low_threshold and not is_new_product:
                     return "Sắp hết hàng"
-                elif quantity <= 15:
+                elif quantity <= medium_threshold and not is_new_product:
                     return "Hàng trung bình"
                 else:
                     return "Còn hàng"
-            
-            materials_display['Trạng thái'] = materials_display['quantity'].apply(get_status)
+
+            # Apply the function to the materials dataframe
+            # We need to pass the whole row, not just the quantity
+            materials_display['Trạng thái'] = materials_display.apply(get_status, axis=1)
             
             # Create a cleaner display version
             display_df = pd.DataFrame({
@@ -1831,7 +1855,7 @@ elif tab_selection == "Kho Nguyên liệu":
             # Add color coding with HTML instead
             status_counts = materials_display['Trạng thái'].value_counts()
             col1, col2, col3, col4 = st.columns(4)
-            
+
             with col1:
                 if 'Hết hàng' in status_counts:
                     st.markdown(f"<div style='background-color:#ff8888;padding:10px;border-radius:5px;'><b>Hết hàng:</b> {status_counts.get('Hết hàng', 0)} mục</div>", unsafe_allow_html=True)
