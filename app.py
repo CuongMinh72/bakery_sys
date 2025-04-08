@@ -235,36 +235,17 @@ ensure_mongodb_connection()
 
 
 # Default dataframes (will be used if files don't exist)
-default_products = pd.DataFrame({
-    'product_id': ['P001', 'P002', 'P003', 'P004'],
-    'name': ['Bánh Socola', 'Bánh Sừng Bò', 'Bánh Mì', 'Bánh Cupcake'],
-    'price': [575000, 80500, 138000, 57500],
-    'category': ['Bánh Ngọt', 'Bánh Ngọt', 'Bánh Mì', 'Bánh Ngọt']
-})
+default_products = pd.DataFrame(columns=[
+    'product_id', 'name', 'price', 'category'
+])
 
-default_materials = pd.DataFrame({
-    'material_id': ['M001', 'M002', 'M003', 'M004', 'M005', 'M006'],
-    'name': ['Bột Mì', 'Đường', 'Trứng', 'Bơ', 'Socola', 'Tinh Chất Vani'],
-    'unit': ['kg', 'kg', 'quả', 'kg', 'kg', 'ml'],
-    'quantity': [50.0, 30.0, 200, 25.0, 15.0, 1000],
-    'price_per_unit': [46000, 69000, 5750, 230000, 345000, 2300],
-    'used_quantity': [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]  
-})
+default_materials = pd.DataFrame(columns=[
+    'material_id', 'name', 'unit', 'quantity', 'price_per_unit', 'used_quantity'
+])
 
-default_recipes = pd.DataFrame({
-    'product_id': ['P001', 'P001', 'P001', 'P001', 'P001', 
-                  'P002', 'P002', 'P002', 'P002',
-                  'P003', 'P003', 'P003',
-                  'P004', 'P004', 'P004', 'P004'],
-    'material_id': ['M001', 'M002', 'M003', 'M004', 'M005',
-                   'M001', 'M002', 'M004', 'M003',
-                   'M001', 'M003', 'M004',
-                   'M001', 'M002', 'M003', 'M004'],
-    'quantity': [0.5, 0.4, 4, 0.3, 0.2,
-                0.1, 0.05, 0.1, 1,
-                1.0, 1, 0.1,
-                0.1, 0.15, 1, 0.05]
-})
+default_recipes = pd.DataFrame(columns=[
+    'product_id', 'material_id', 'quantity'
+])
 
 default_orders = pd.DataFrame(columns=[
     'order_id', 'date', 'customer_name', 'customer_phone', 'total_amount', 'status'
@@ -443,8 +424,8 @@ def update_income(order_id):
     # Calculate cost of goods (materials only, not shipping)
     cost_of_goods = calculate_cost_of_goods(order_id)
     
-    # Calculate profit (including shipping as revenue)
-    profit = total_amount - cost_of_goods
+    # Calculate profit 
+    profit = total_amount - cost_of_goods - shipping_fee
     
     # Check if date already exists in income DataFrame
     if order_date in st.session_state.income['date'].values:
@@ -862,10 +843,21 @@ def add_backup_restore_ui():
 st.title("Hệ Thống Quản Lý Tiệm Bánh 🍰")
 
 # Sidebar navigation
+if 'sidebar_selection' not in st.session_state:
+    st.session_state.sidebar_selection = "Quản lý Đơn hàng"
+    
+previous_selection = st.session_state.sidebar_selection
+    
 tab_selection = st.sidebar.radio(
     "Điều hướng",
-    ["Quản lý Đơn hàng", "Theo dõi Doanh thu", "Kho Nguyên liệu", "Quản lý Sản phẩm", "Quản lý Hóa đơn", "Quản lý Dữ liệu"]
+    ["Quản lý Đơn hàng", "Theo dõi Doanh thu", "Kho Nguyên liệu", "Quản lý Sản phẩm", "Quản lý Hóa đơn", "Quản lý Dữ liệu"],
+    index=["Quản lý Đơn hàng", "Theo dõi Doanh thu", "Kho Nguyên liệu", "Quản lý Sản phẩm", "Quản lý Hóa đơn", "Quản lý Dữ liệu"].index(st.session_state.sidebar_selection)
 )
+
+# Cập nhật sidebar_selection và tự động rerun nếu giá trị thay đổi
+if previous_selection != tab_selection:
+    st.session_state.sidebar_selection = tab_selection
+    st.rerun()
 
 # Order Management Tab
 if tab_selection == "Quản lý Đơn hàng":
@@ -886,20 +878,32 @@ if tab_selection == "Quản lý Đơn hàng":
         # Product selection
         st.subheader("Lựa chọn Sản phẩm")
         
-        # Display available products with quantity selection
-        selected_products = []
-        quantities = []
-        
-        cols = st.columns(4)
-        for i, (_, product) in enumerate(st.session_state.products.iterrows()):
-            with cols[i % 4]:
-                st.write(f"**{product['name']}**")
-                st.write(f"{product['price']:,.0f} VND")
-                quantity = st.number_input(f"SL {product['name']}", min_value=0, value=0, key=f"qty_{product['product_id']}")
-                if quantity > 0:
-                    selected_products.append(product)
-                    quantities.append(quantity)
-                st.write("---")
+        # Kiểm tra xem có sản phẩm nào không
+        if st.session_state.products.empty:
+            st.warning("Chưa có sản phẩm nào trong hệ thống. Vui lòng tạo sản phẩm trước trong mục 'Quản lý Sản phẩm'.")
+            
+            # Thêm nút dẫn đến phần quản lý sản phẩm
+            if st.button("Đi đến Quản lý Sản phẩm"):
+                st.session_state.sidebar_selection = "Quản lý Sản phẩm"
+                st.rerun()  # Sửa từ st.rerun() thành st.experimental_rerun()
+                
+            # Không hiển thị phần còn lại của đơn hàng khi không có sản phẩm
+            st.stop()
+        else:
+            # Display available products with quantity selection
+            selected_products = []
+            quantities = []
+            
+            cols = st.columns(4)
+            for i, (_, product) in enumerate(st.session_state.products.iterrows()):
+                with cols[i % 4]:
+                    st.write(f"**{product['name']}**")
+                    st.write(f"{product['price']:,.0f} VND")
+                    quantity = st.number_input(f"SL {product['name']}", min_value=0, value=0, key=f"qty_{product['product_id']}")
+                    if quantity > 0:
+                        selected_products.append(product)
+                        quantities.append(quantity)
+                    st.write("---")
         
         # Calculate total product amount
         total_product_amount = sum(p['price'] * q for p, q in zip(selected_products, quantities))
@@ -2320,14 +2324,40 @@ elif tab_selection == "Quản lý Sản phẩm":
         new_product_category = st.text_input("Phân loại", key="new_product_category")
         
         # Add direct production fee and other costs inputs
-        col1, col2 = st.columns(2)
+        col1, col2, col3 = st.columns(3)
         with col1:
-            production_fee = st.number_input("Chi phí sản xuất (VND)", min_value=0, value=10000, step=1000, key="production_fee")
+            production_fee = st.number_input(
+                "Chi phí nhân công (VND)", 
+                min_value=0, 
+                value=10000, 
+                step=1000, 
+                key="production_fee"
+            )
             st.caption("Chi phí liên quan đến quá trình sản xuất")
+            st.text(f"Giá trị hiện tại: {production_fee:,} VND")
+
         with col2:
-            other_fee = st.number_input("Chi phí khác (VND)", min_value=0, value=5000, step=1000, key="other_fee")
+            other_fee = st.number_input(
+                "Chi phí khác (VND)", 
+                min_value=0, 
+                value=5000, 
+                step=1000, 
+                key="other_fee"
+            )
             st.caption("Các chi phí phát sinh khác")
-        
+            st.text(f"Giá trị hiện tại: {other_fee:,} VND")
+
+        with col3:
+            Depreciation_fee = st.number_input(
+                "Chi phí khấu hao (VND)", 
+                min_value=0, 
+                value=5000, 
+                step=1000, 
+                key="Depreciation_fee"
+            )
+            st.caption("Các chi phí khấu hao tài sản cố định")
+            st.text(f"Giá trị hiện tại: {Depreciation_fee:,} VND")
+                
         st.write("### Công thức")
         st.write("Chọn nguyên liệu và số lượng cần thiết cho sản phẩm này:")
         
@@ -2366,7 +2396,9 @@ elif tab_selection == "Quản lý Sản phẩm":
             st.warning("Không có nguyên liệu nào trong kho. Vui lòng thêm nguyên liệu trước.")
         
         # Calculate total cost and suggested price
-        total_cost = total_material_cost + production_fee + other_fee
+        total_cost = total_material_cost + production_fee + other_fee + Depreciation_fee
+
+        # Calculate suggested price with a markup percentage
         markup_percentage = 66.66
         markup_multiplier = 1 + (markup_percentage / 100)
         suggested_price = total_cost * markup_multiplier
@@ -2376,8 +2408,9 @@ elif tab_selection == "Quản lý Sản phẩm":
         col1, col2 = st.columns(2)
         with col1:
             st.write(f"Chi phí nguyên liệu: **{total_material_cost:,.0f} VND**")
-            st.write(f"Chi phí sản xuất: **{production_fee:,.0f} VND**")
+            st.write(f"Chi phí nhân công: **{production_fee:,.0f} VND**")
             st.write(f"Chi phí khác: **{other_fee:,.0f} VND**")
+            st.write(f"Chi phí khấu hao tài sản: **{Depreciation_fee:,.0f} VND**")
             st.write(f"**Tổng chi phí: {total_cost:,.0f} VND**")
         with col2:
             st.write(f"Tỷ lệ lợi nhuận: **{markup_percentage:.2f}%**")
@@ -2536,7 +2569,7 @@ elif tab_selection == "Quản lý Hóa đơn":
             elif 'payment_status' not in st.session_state.invoice_status.columns:
                 st.session_state.invoice_status['payment_status'] = 'Chưa thanh toán'
     
-    invoice_tab1, invoice_tab2 = st.tabs(["Danh sách Hóa đơn", "Hóa đơn Chưa hoàn thành"])
+    invoice_tab1, invoice_tab2, invoice_tab3 = st.tabs(["Danh sách Hóa đơn", "Hóa đơn Chưa hoàn thành", "Xóa Hóa đơn"])
     
     with invoice_tab1:
         if len(st.session_state.invoices) > 0:
@@ -2896,6 +2929,120 @@ elif tab_selection == "Quản lý Hóa đơn":
                 st.info("Không có hóa đơn nào chưa hoàn thành.")
         else:
             st.info("Chưa có hóa đơn nào để hiển thị.")
+    
+    with invoice_tab3:
+        st.subheader("Xóa Hóa đơn")
+        
+        if len(st.session_state.invoices) > 0:
+            # Tạo danh sách các hóa đơn
+            invoice_options = []
+            for _, invoice in st.session_state.invoices.iterrows():
+                # Lấy thông tin trạng thái nếu có
+                status = "⚠️ Không xác định"
+                if 'invoice_status' in st.session_state and not st.session_state.invoice_status.empty:
+                    status_data = st.session_state.invoice_status[
+                        st.session_state.invoice_status['invoice_id'] == invoice['invoice_id']
+                    ]
+                    if not status_data.empty:
+                        is_completed = status_data['is_completed'].iloc[0]
+                        status = "✅ Hoàn thành" if is_completed else "⏳ Chưa hoàn thành"
+                
+                invoice_options.append(f"{invoice['invoice_id']} - {invoice['date']} - {invoice['customer_name']} ({status})")
+            
+            # Chọn hóa đơn để xóa
+            selected_invoice_to_delete = st.selectbox(
+                "Chọn Hóa đơn để Xóa",
+                options=invoice_options,
+                key="delete_invoice_select"
+            )
+            
+            if selected_invoice_to_delete:
+                # Trích xuất invoice_id từ lựa chọn
+                selected_invoice_id = selected_invoice_to_delete.split(' - ')[0]
+                
+                # Tìm dữ liệu hóa đơn
+                invoice_data = st.session_state.invoices[st.session_state.invoices['invoice_id'] == selected_invoice_id]
+                
+                if not invoice_data.empty:
+                    invoice_info = invoice_data.iloc[0]
+                    
+                    # Hiển thị thông tin hóa đơn
+                    st.write("### Thông tin Hóa đơn")
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        st.write(f"**Mã Hóa đơn:** {invoice_info['invoice_id']}")
+                        st.write(f"**Ngày:** {invoice_info['date']}")
+                        st.write(f"**Khách hàng:** {invoice_info['customer_name']}")
+                    with col2:
+                        st.write(f"**Tổng tiền:** {invoice_info['total_amount']:,.0f} VND")
+                        st.write(f"**Phương thức thanh toán:** {invoice_info['payment_method']}")
+                        
+                        # Hiển thị thông tin liên quan (đơn hàng)
+                        order_id = invoice_info['order_id']
+                        st.write(f"**Mã Đơn hàng:** {order_id}")
+                    
+                    # Kiểm tra trạng thái hoàn thành
+                    is_completed = False
+                    if 'invoice_status' in st.session_state and not st.session_state.invoice_status.empty:
+                        status_data = st.session_state.invoice_status[
+                            st.session_state.invoice_status['invoice_id'] == selected_invoice_id
+                        ]
+                        if not status_data.empty:
+                            is_completed = status_data['is_completed'].iloc[0]
+                    
+                    # Cảnh báo dựa trên trạng thái
+                    if is_completed:
+                        st.warning("Hóa đơn này đã được đánh dấu là Hoàn thành. Bạn có chắc chắn muốn xóa không?")
+                    else:
+                        st.info("Hóa đơn này Chưa hoàn thành và có thể xóa an toàn.")
+                    
+                    # Xác nhận xóa
+                    delete_confirmed = st.checkbox("Tôi hiểu rằng hành động này không thể hoàn tác", key="delete_invoice_confirm")
+                    
+                    # Option to delete related order
+                    delete_order_too = st.checkbox("Xóa cả Đơn hàng liên quan", value=False, key="delete_order_too")
+                    
+                    if st.button("Xóa Hóa đơn", key="confirm_delete_invoice"):
+                        if delete_confirmed:
+                            # 1. Xóa thông tin trạng thái hóa đơn
+                            if 'invoice_status' in st.session_state and not st.session_state.invoice_status.empty:
+                                st.session_state.invoice_status = st.session_state.invoice_status[
+                                    st.session_state.invoice_status['invoice_id'] != selected_invoice_id
+                                ]
+                            
+                            # 2. Xóa hóa đơn
+                            st.session_state.invoices = st.session_state.invoices[
+                                st.session_state.invoices['invoice_id'] != selected_invoice_id
+                            ]
+                            
+                            # 3. Nếu được chọn, xóa đơn hàng liên quan
+                            if delete_order_too:
+                                # Xóa đơn hàng và các chi tiết đơn hàng
+                                st.session_state.orders = st.session_state.orders[
+                                    st.session_state.orders['order_id'] != order_id
+                                ]
+                                
+                                st.session_state.order_items = st.session_state.order_items[
+                                    st.session_state.order_items['order_id'] != order_id
+                                ]
+                            
+                            # 4. Lưu các thay đổi
+                            save_dataframe(st.session_state.invoices, "invoices.csv")
+                            save_dataframe(st.session_state.invoice_status, "invoice_status.csv")
+                            
+                            if delete_order_too:
+                                save_dataframe(st.session_state.orders, "orders.csv")
+                                save_dataframe(st.session_state.order_items, "order_items.csv")
+                            
+                            st.success(f"Đã xóa hóa đơn {selected_invoice_id} thành công!" + 
+                                    (f" và đơn hàng {order_id}" if delete_order_too else ""))
+                            
+                            # Làm mới trang
+                            st.rerun()
+                        else:
+                            st.error("Vui lòng xác nhận bằng cách đánh dấu vào ô xác nhận trước khi xóa.")
+        else:
+            st.info("Không có hóa đơn nào để xóa. Tạo đơn hàng để tạo hóa đơn trước.")
 
 # Data Management and Debug Tab
 elif tab_selection == "Quản lý Dữ liệu":
