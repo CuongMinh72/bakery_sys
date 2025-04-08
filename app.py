@@ -2345,7 +2345,8 @@ elif tab_selection == "Quản lý Sản phẩm":
                         f"SL",
                         min_value=0.0,
                         value=0.0,
-                        step=0.1,
+                        step=0.00001,
+                        format="%.5f",
                         key=f"new_recipe_{material['material_id']}"
                     )
                 with col3:
