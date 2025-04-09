@@ -12,7 +12,7 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import inch
 import io
 from reportlab.pdfgen import canvas
-from reportlab.lib.pagesizes import A3
+from reportlab.lib.pagesizes import A1
 from reportlab.lib.units import cm
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
@@ -691,6 +691,24 @@ def restore_materials_after_delete_order(order_id):
             st.sidebar.error(f"Error restoring materials after delete: {str(e)}")
         return False
 
+def apply_discount_code(code, total_amount):
+    """Áp dụng mã giảm giá và trả về số tiền giảm"""
+    # Định nghĩa các mã giảm giá hợp lệ và tỷ lệ giảm tương ứng
+    valid_codes = {
+        "THUXUAN10": 0.10,  # Giảm 10%
+        "THUXUAN15": 0.15,  # Giảm 15%
+        "THUXUAN20": 0.20,  # Giảm 20%
+        "WELCOME": 0.05     # Giảm 5%
+    }
+    
+    # Kiểm tra mã giảm giá
+    if code.upper() in valid_codes:
+        discount_rate = valid_codes[code.upper()]
+        discount_amount = total_amount * discount_rate
+        return discount_amount, discount_rate
+    else:
+        return 0, 0
+
 def generate_invoice_content(invoice_id, order_id, as_pdf=False):
     
     order_data = st.session_state.orders[st.session_state.orders['order_id'] == order_id].iloc[0]
@@ -720,238 +738,209 @@ def generate_invoice_content(invoice_id, order_id, as_pdf=False):
     store_address = "Đ/C: Số 10 ngõ 298 Đê La Thành, Đống Đa, Hà Nội"
     store_phone = "ĐT: 0988 159 268"
     
-    if not as_pdf:
-        # Text version with Vietnamese text
-        invoice_content = f"""
-                                {store_name}
-                               {store_address}
-                               {store_phone}
-        
-        -----------------------------------------
-        
-        Số hóa đơn:                #{order_id}#
-        
-        Khách hàng: {customer_name}
-        Số điện thoại: {customer_phone}
-        Địa chỉ: {customer_address}
-        
-        Ngày: {order_data['date']}
-        
-        -----------------------------------------
-        
-        Sản phẩm x SL                         Giá
-        """
-        
-        for _, item in order_items.iterrows():
-            invoice_content += f"\n{item['name']} x {item['quantity']}                           {item['subtotal']:,.0f}"
-        
-        invoice_content += f"""
-        -----------------------------------------
-        
-        Số lượng mặt hàng/SL                   {len(order_items)}/{order_items['quantity'].sum()}
-        
-        Tổng tiền hàng                      {subtotal_amount:,.0f}
-        Phí vận chuyển                      {shipping_fee:,.0f}
-        Tổng thanh toán                     {total_amount:,.0f}
-        
-        -----------------------------------------
-        
-        Phương thức thanh toán               Tiền mặt
-        
-        
-        " XIN CẢM ƠN QUÝ KHÁCH."
-        """
-        
-        return invoice_content
-    else:
-        # PDF version optimized for A3
-        buffer = io.BytesIO()
-        width, height = A3  # A3 size: 29.7 x 42.0 cm
-        
-        # Create the PDF with A3 size
-        c = canvas.Canvas(buffer, pagesize=A3)
-        
-        # Set up font for Vietnamese
-        font_name = setup_vietnamese_font()
-        
-        # Function to use proper font with fallback
-        def set_font(font_style, size):
-            if font_name == 'Roboto':
-                try:
-                    c.setFont(f"Roboto{'-Bold' if font_style == 'bold' else ''}", size)
-                except:
-                    c.setFont(f"Helvetica{'-Bold' if font_style == 'bold' else ''}", size)
-            else:
+    # PDF version optimized for A1 in portrait orientation
+    buffer = io.BytesIO()
+    # A1 size in portrait: 59.4 x 84.1 cm (width x height)
+    width, height = A1  # Use A1 in portrait (vertical) orientation
+
+    # Create the PDF with A1 size in landscape
+    c = canvas.Canvas(buffer, pagesize=(width, height))
+
+    # Set up font for Vietnamese
+    font_name = setup_vietnamese_font()
+
+    # Function to use proper font with fallback
+    def set_font(font_style, size):
+        if font_name == 'Roboto':
+            try:
+                c.setFont(f"Roboto{'-Bold' if font_style == 'bold' else ''}", size)
+            except:
                 c.setFont(f"Helvetica{'-Bold' if font_style == 'bold' else ''}", size)
-        
-        # Simplified page break check - just starts a new page without headers
-        def check_page_break(current_y, min_y=7*cm):
-            if current_y < min_y:
-                c.showPage()  # Just start a new page
-                return height - 5*cm  # Return to top of new page
-            return current_y
-        
-        # Adjusted margins for A3 paper
-        left_margin = 5*cm
-        right_margin = width - 5*cm
-        
-        # Initialize y position with more space at the top
-        y_position = height - 5*cm
-        
-        # Draw store name (centered) - larger font for A3
-        set_font('bold', 60)  # Increased font size for A3
-        c.drawCentredString(width/2, y_position, store_name)
+        else:
+            c.setFont(f"Helvetica{'-Bold' if font_style == 'bold' else ''}", size)
+
+    # Simplified page break check - just starts a new page without headers
+    def check_page_break(current_y, min_y=10*cm):
+        if current_y < min_y:
+            c.showPage()  # Just start a new page
+            return height - 8*cm  # Return to top of new page
+        return current_y
+
+    # Adjusted margins for A1 paper in portrait
+    left_margin = 7*cm
+    right_margin = width - 7*cm
+
+    # Initialize y position with more space at the top
+    y_position = height - 8*cm
+
+    # Draw store name (centered) - larger font for A1
+    set_font('bold', 90)  # Increased font size for A1
+    c.drawCentredString(width/2, y_position, store_name)
+    y_position -= 4*cm
+
+    # Draw store address (centered)
+    set_font('normal', 40)  # Increased font size for A1
+    c.drawCentredString(width/2, y_position, store_address)
+    y_position -= 2*cm
+    c.drawCentredString(width/2, y_position, store_phone)
+    y_position -= 3*cm
+
+    # Draw separator line - wider for A1
+    c.setLineWidth(3)  # Thicker line for A1
+    c.line(left_margin, y_position, right_margin, y_position)
+    y_position -= 3*cm
+
+    # Bill number with proper alignment for A1
+    set_font('bold', 60)  # Increased font size for A1
+    c.drawString(left_margin, y_position, "Số hóa đơn:")
+    c.drawString(left_margin + 15*cm, y_position, f"#{order_id}#")
+    y_position -= 3*cm
+
+    # Customer information with proper spacing for A1
+    set_font('normal', 50)  # Increased font size for A1
+    c.drawString(left_margin, y_position, f"Khách hàng: {customer_name}")
+    y_position -= 2.5*cm
+
+    # Phone
+    y_position = check_page_break(y_position)
+    set_font('normal', 50)  # Increased font size for A1
+    c.drawString(left_margin, y_position, f"Số điện thoại: {customer_phone}")
+    y_position -= 2.5*cm
+
+    # Address
+    y_position = check_page_break(y_position)
+    set_font('normal', 50)  # Increased font size for A1
+    c.drawString(left_margin, y_position, f"Địa chỉ: {customer_address}")
+    y_position -= 3*cm
+
+    # Date
+    y_position = check_page_break(y_position)
+    set_font('normal', 50)  # Increased font size for A1
+    c.drawString(left_margin, y_position, f"Ngày: {order_data['date']}")
+    y_position -= 3*cm
+
+    # Draw separator line
+    y_position = check_page_break(y_position)
+    c.setLineWidth(3)
+    c.line(left_margin, y_position, right_margin, y_position)
+    y_position -= 3*cm
+
+    # Column headers with better alignment for A1
+    y_position = check_page_break(y_position)
+    set_font('bold', 60)  # Increased font size for A1
+    c.drawString(left_margin, y_position, "Sản phẩm x SL")
+    c.drawRightString(right_margin, y_position, "Giá")
+    y_position -= 2.5*cm
+
+    # Draw items with better spacing and alignment for A1
+    for _, item in order_items.iterrows():
+        y_position = check_page_break(y_position)
+        set_font('normal', 50)  # Increased font size for A1
+        c.drawString(left_margin, y_position, f"{item['name']} x {item['quantity']}")
+        # Right-align the price with consistent formatting
+        c.drawRightString(right_margin, y_position, f"{item['subtotal']:,.0f}")
         y_position -= 2.5*cm
-        
-        # Draw store address (centered)
-        set_font('normal', 24)  # Increased font size for A3
-        c.drawCentredString(width/2, y_position, store_address)
-        y_position -= 1.2*cm
-        c.drawCentredString(width/2, y_position, store_phone)
-        y_position -= 2*cm
-        
-        # Draw separator line - wider for A3
-        c.setLineWidth(2)  # Thicker line for A3
-        c.line(left_margin, y_position, right_margin, y_position)
-        y_position -= 2*cm
-        
-        # Bill number with proper alignment for A3
-        set_font('bold', 36)  # Increased font size for A3
-        c.drawString(left_margin, y_position, "Số hóa đơn:")
-        c.drawString(left_margin + 10*cm, y_position, f"#{order_id}#")
-        y_position -= 2*cm
-        
-        # Customer information with proper spacing for A3
-        set_font('normal', 30)  # Increased font size for A3
-        c.drawString(left_margin, y_position, f"Khách hàng: {customer_name}")
-        y_position -= 1.5*cm
-        
-        # Phone
+
+    # Draw separator line
+    y_position = check_page_break(y_position)
+    c.setLineWidth(3)
+    c.line(left_margin, y_position, right_margin, y_position)
+    y_position -= 3*cm
+
+    # Items/Qty count with proper alignment
+    y_position = check_page_break(y_position)
+    set_font('normal', 50)  # Increased font size for A1
+    c.drawString(left_margin, y_position, "Số lượng mặt hàng/SL")
+    c.drawRightString(right_margin, y_position, f"{len(order_items)}/{order_items['quantity'].sum()}")
+    y_position -= 3*cm
+
+    # Subtotal
+    y_position = check_page_break(y_position)
+    set_font('normal', 50)
+    c.drawString(left_margin, y_position, "Tổng tiền hàng")
+    c.drawRightString(right_margin, y_position, f"{subtotal_amount:,.0f}")
+    y_position -= 2.5*cm
+
+    # Shipping fee
+    y_position = check_page_break(y_position)
+    set_font('normal', 50)
+    c.drawString(left_margin, y_position, "Phí vận chuyển")
+    c.drawRightString(right_margin, y_position, f"{shipping_fee:,.0f}")
+    y_position -= 2.5*cm
+
+    # Discount (if applicable)
+    discount_amount = order_data.get('discount_amount', 0)
+    if discount_amount > 0:
         y_position = check_page_break(y_position)
-        set_font('normal', 30)  # Increased font size for A3
-        c.drawString(left_margin, y_position, f"Số điện thoại: {customer_phone}")
-        y_position -= 1.5*cm
+        set_font('normal', 50)
+        c.drawString(left_margin, y_position, "Giảm giá")
+        c.drawRightString(right_margin, y_position, f"-{discount_amount:,.0f}")
+        y_position -= 2.5*cm
+
+    # Total with proper alignment and emphasis
+    y_position = check_page_break(y_position)
+    set_font('bold', 70)  # Increased font size for A1
+    c.drawString(left_margin, y_position, "Tổng thanh toán")
+    c.drawRightString(right_margin, y_position, f"{total_amount:,.0f}")
+    y_position -= 6*cm  # Tăng khoảng cách sau dòng tổng tiền
+
+    # Check if we need to start a new page for QR code and thank you message
+    # Need at least 35cm for QR code, payment info, and thank you message
+    if y_position < 35*cm:
+        c.showPage()
+        y_position = height - 15*cm
+
+    # Add QR code at the center of the page
+    try:
+        qr_image_path = "assets/qr_code.png"
         
-        # Address
-        y_position = check_page_break(y_position)
-        set_font('normal', 30)  # Increased font size for A3
-        c.drawString(left_margin, y_position, f"Địa chỉ: {customer_address}")
-        y_position -= 2*cm
-        
-        # Date
-        y_position = check_page_break(y_position)
-        set_font('normal', 30)  # Increased font size for A3
-        c.drawString(left_margin, y_position, f"Ngày: {order_data['date']}")
-        y_position -= 2*cm
-        
-        # Draw separator line
-        y_position = check_page_break(y_position)
-        c.setLineWidth(2)
-        c.line(left_margin, y_position, right_margin, y_position)
-        y_position -= 2*cm
-        
-        # Column headers with better alignment for A3
-        y_position = check_page_break(y_position)
-        set_font('bold', 36)  # Increased font size for A3
-        c.drawString(left_margin, y_position, "Sản phẩm x SL")
-        c.drawRightString(right_margin, y_position, "Giá")
-        y_position -= 1.5*cm
-        
-        # Draw items with better spacing and alignment for A3
-        for _, item in order_items.iterrows():
-            y_position = check_page_break(y_position)
-            set_font('normal', 30)  # Increased font size for A3
-            c.drawString(left_margin, y_position, f"{item['name']} x {item['quantity']}")
-            # Right-align the price with consistent formatting
-            c.drawRightString(right_margin, y_position, f"{item['subtotal']:,.0f}")
-            y_position -= 1.5*cm
-        
-        # Draw separator line
-        y_position = check_page_break(y_position)
-        c.setLineWidth(2)
-        c.line(left_margin, y_position, right_margin, y_position)
-        y_position -= 2*cm
-        
-        # Items/Qty count with proper alignment
-        y_position = check_page_break(y_position)
-        set_font('normal', 30)  # Increased font size for A3
-        c.drawString(left_margin, y_position, "Số lượng mặt hàng/SL")
-        c.drawRightString(right_margin, y_position, f"{len(order_items)}/{order_items['quantity'].sum()}")
-        y_position -= 2*cm
-        
-        # Subtotal
-        y_position = check_page_break(y_position)
-        set_font('normal', 30)
-        c.drawString(left_margin, y_position, "Tổng tiền hàng")
-        c.drawRightString(right_margin, y_position, f"{subtotal_amount:,.0f}")
-        y_position -= 1.5*cm
-        
-        # Shipping fee
-        y_position = check_page_break(y_position)
-        set_font('normal', 30)
-        c.drawString(left_margin, y_position, "Phí vận chuyển")
-        c.drawRightString(right_margin, y_position, f"{shipping_fee:,.0f}")
-        y_position -= 1.5*cm
-        
-        # Total with proper alignment and emphasis
-        y_position = check_page_break(y_position)
-        set_font('bold', 40)  # Increased font size for A3
-        c.drawString(left_margin, y_position, "Tổng thanh toán")
-        c.drawRightString(right_margin, y_position, f"{total_amount:,.0f}")
-        y_position -= 2*cm
-        
-        # Check if we need to start a new page for QR code and thank you message
-        # Need at least 15cm for QR code, payment info, and thank you message
-        if y_position < 15*cm:
-            c.showPage()
-            y_position = height - 10*cm
-        
-        # Add QR code at the center of the page
-        try:
-            qr_image_path = "assets/qr_code.png"
+        # Check if file exists before trying to draw it
+        if os.path.exists(qr_image_path):
+            # Draw QR code with proper positioning
+            qr_size = 20*cm  # Larger QR code size for A1
             
-            # Check if file exists before trying to draw it
-            if os.path.exists(qr_image_path):
-                # Draw QR code with proper positioning
-                qr_size = 14*cm  # QR code size
-                
-                # Calculate position - center of page horizontally
-                qr_x = (width - qr_size) / 2
-                
-                # Draw QR code centered on the page
-                c.drawImage(qr_image_path, qr_x, y_position - 8*cm, width=qr_size, height=qr_size)
-                
-                # Draw payment information centered below QR code
-                set_font('bold', 32)
-                c.drawCentredString(width/2, y_position - 9*cm, "Quét để thanh toán")
-                
-                set_font('normal', 30)
-                # Account information
-                account_number = "0011000597767"
-                account_name = "NGUYỄN VƯƠNG HẰNG"
-                c.drawCentredString(width/2, y_position - 10*cm, f"STK: {account_number}")
-                c.drawCentredString(width/2, y_position - 11*cm, f"Tên: {account_name}")
-                
-                # Draw separator line below QR code info
-                c.setLineWidth(1)
-                c.line(left_margin, y_position - 13*cm, right_margin, y_position - 13*cm)
-                
-                # Thank you message with proper formatting and quotes
-                set_font('normal', 36)  # Increased font size for A3
-                c.drawCentredString(width/2, y_position - 15*cm, 'XIN CẢM ƠN QUÝ KHÁCH')
-        except Exception as e:
-            # More descriptive error handling
-            print(f"QR code error: {str(e)}")
-            # If QR code insertion fails, still draw the thank you message
-            set_font('normal', 36)
-            c.drawCentredString(width/2, y_position - 4*cm, 'XIN CẢM ƠN QUÝ KHÁCH')
-        
-        # Save the PDF
-        c.save()
-        pdf_data = buffer.getvalue()
-        buffer.close()
-        
-        return pdf_data
+            # Calculate position - center of page horizontally
+            qr_x = (width - qr_size) / 2
+            
+            # Thêm dòng separator trước QR code
+            c.setLineWidth(2)
+            c.line(left_margin, y_position, right_margin, y_position)
+            y_position -= 5*cm  # Thêm khoảng cách trước QR code
+            
+            # Draw QR code centered on the page
+            c.drawImage(qr_image_path, qr_x, y_position - 20*cm, width=qr_size, height=qr_size)
+            
+            # Draw payment information centered below QR code
+            set_font('bold', 55)
+            c.drawCentredString(width/2, y_position - 22*cm, "Quét để thanh toán")
+            
+            set_font('normal', 50)
+            # Account information
+            account_number = "0011000597767"
+            account_name = "NGUYỄN VƯƠNG HẰNG"
+            c.drawCentredString(width/2, y_position - 24*cm, f"STK: {account_number}")
+            c.drawCentredString(width/2, y_position - 26*cm, f"Tên: {account_name}")
+            
+            # Draw separator line below QR code info
+            c.setLineWidth(2)
+            c.line(left_margin, y_position - 28*cm, right_margin, y_position - 28*cm)
+            
+            # Thank you message with proper formatting and quotes
+            set_font('normal', 60)  # Increased font size for A1
+            c.drawCentredString(width/2, y_position - 31*cm, 'XIN CẢM ƠN QUÝ KHÁCH')
+    except Exception as e:
+        # More descriptive error handling
+        print(f"QR code error: {str(e)}")
+        # If QR code insertion fails, still draw the thank you message
+        set_font('normal', 60)
+        c.drawCentredString(width/2, y_position - 6*cm, 'XIN CẢM ƠN QUÝ KHÁCH')
+
+    # Save the PDF
+    c.save()
+    pdf_data = buffer.getvalue()
+    buffer.close()
+
+    return pdf_data
     
 def download_link(content, filename, text, is_pdf=False):
     """Generate a link to download content as a file"""
@@ -1148,17 +1137,40 @@ if tab_selection == "Quản lý Đơn hàng":
         st.subheader("Phí vận chuyển")
         shipping_fee = st.number_input("Phí vận chuyển (VND)", min_value=0, value=0, step=1000)
         
-        # Calculate grand total
-        total_amount = total_product_amount + shipping_fee
-        
+        # Mã giảm giá
+        st.subheader("Mã giảm giá")
+        discount_code = st.text_input("Nhập mã giảm giá (nếu có)")
+        discount_amount = 0
+        discount_rate = 0
+
+        # Kiểm tra và áp dụng mã giảm giá
+        if discount_code:
+            discount_amount, discount_rate = apply_discount_code(discount_code, total_product_amount)
+            if discount_amount > 0:
+                st.success(f"Mã giảm giá hợp lệ! Bạn được giảm {discount_rate*100:.0f}% ({discount_amount:,.0f} VND)")
+            else:
+                st.error("Mã giảm giá không hợp lệ hoặc đã hết hạn")
+
+        # Tính tổng tiền sau khi áp dụng giảm giá
+        discounted_product_amount = total_product_amount - discount_amount
+
+        # Tính tổng cộng (sản phẩm sau giảm giá + phí vận chuyển)
+        total_amount = discounted_product_amount + shipping_fee
+                
         # Display totals
+        # Thay thế phần hiển thị tổng tiền hiện tại bằng code sau
         st.subheader("Tổng tiền")
-        col1, col2, col3 = st.columns(3)
+        col1, col2, col3, col4 = st.columns(4)
         with col1:
             st.write(f"**Tổng sản phẩm:** {total_product_amount:,.0f} VND")
         with col2:
-            st.write(f"**Phí vận chuyển:** {shipping_fee:,.0f} VND")
+            if discount_amount > 0:
+                st.write(f"**Giảm giá ({discount_rate*100:.0f}%):** -{discount_amount:,.0f} VND")
+            else:
+                st.write("**Giảm giá:** 0 VND")
         with col3:
+            st.write(f"**Phí vận chuyển:** {shipping_fee:,.0f} VND")
+        with col4:
             st.write(f"**Tổng cộng:** {total_amount:,.0f} VND")
         
         if st.button("Tạo Đơn hàng", key="create_order"):
@@ -1171,14 +1183,17 @@ if tab_selection == "Quản lý Đơn hàng":
                 order_id = f"ORD-{uuid.uuid4().hex[:8].upper()}"
                 
                 # Create order
+                # Thêm thông tin giảm giá vào DataFrame đơn hàng khi tạo đơn hàng mới
                 new_order = pd.DataFrame({
                     'order_id': [order_id],
                     'date': [date.today().strftime("%Y-%m-%d")],
                     'customer_name': [customer_name],
                     'customer_phone': [customer_phone],
                     'customer_address': [customer_address],
-                    'total_amount': [total_product_amount],  # Store just product amount
-                    'shipping_fee': [shipping_fee],  # Add shipping fee
+                    'total_amount': [discounted_product_amount],  # Giá trị sản phẩm sau khi giảm giá
+                    'shipping_fee': [shipping_fee],  # Phí vận chuyển
+                    'discount_code': [discount_code if discount_amount > 0 else ''],  # Lưu mã giảm giá
+                    'discount_amount': [discount_amount],  # Lưu số tiền giảm giá
                     'status': ['Hoàn thành']
                 })
                 
@@ -2155,7 +2170,7 @@ elif tab_selection == "Kho Nguyên liệu":
             'date', 'material_id', 'quantity', 'total_cost', 'supplier'
         ])
     
-    mat_tab1, mat_tab2, mat_tab3 = st.tabs(["Xem Kho", "Cập nhật Kho", "Nhập Nguyên liệu"])
+    mat_tab1, mat_tab2, mat_tab3, mat_tab4 = st.tabs(["Xem Kho", "Cập nhật Kho", "Nhập Nguyên liệu", "Xóa Nguyên liệu"])
     
     with mat_tab1:
         st.subheader("Kho hiện tại")
@@ -2569,6 +2584,117 @@ elif tab_selection == "Kho Nguyên liệu":
                     save_dataframe(st.session_state.materials, "materials.csv")
                     save_dataframe(st.session_state.material_costs, "material_costs.csv")
 
+    with mat_tab4:
+        st.subheader("Xóa Nguyên liệu")
+        
+        if not st.session_state.materials.empty:
+            # Tạo danh sách các nguyên liệu để chọn
+            material_options = []
+            for _, material in st.session_state.materials.iterrows():
+                # Xác định trạng thái tương tự như trong tab Xem Kho
+                initial_quantity = material.get('initial_quantity', None)
+                        
+                # Nếu initial_quantity không có sẵn, ước tính từ used_quantity
+                if initial_quantity is None or initial_quantity <= 0:
+                    initial_quantity = material['quantity'] + material.get('used_quantity', 0)
+                                
+                # Tính phần trăm còn lại
+                percentage_remaining = (material['quantity'] / initial_quantity * 100) if initial_quantity > 0 else 100
+                
+                # Kiểm tra mức tồn kho
+                status = ""
+                if material['quantity'] <= 0:
+                    status = " [HẾT HÀNG]"
+                elif percentage_remaining <= 10.0:
+                    # Bỏ qua cảnh báo này cho sản phẩm mới
+                    used_quantity = material.get('used_quantity', 0)
+                    is_new_product = used_quantity == 0 and material['quantity'] > 0
+                    
+                    if not is_new_product:
+                        status = f" [SẮP HẾT - {percentage_remaining:.1f}%]"
+                elif percentage_remaining <= 30.0:
+                    used_quantity = material.get('used_quantity', 0)
+                    is_new_product = used_quantity == 0 and material['quantity'] > 0
+                    
+                    if not is_new_product:
+                        status = " [TRUNG BÌNH]"
+                
+                material_options.append(f"{material['material_id']} - {material['name']}{status}")
+            
+            selected_material = st.selectbox(
+                "Chọn Nguyên liệu để Xóa",
+                options=material_options,
+                key="delete_material_select"
+            )
+            
+            if selected_material:
+                # Trích xuất material_id từ lựa chọn
+                selected_material_id = selected_material.split(' - ')[0]
+                
+                # Tìm dữ liệu nguyên liệu
+                material_data = st.session_state.materials[st.session_state.materials['material_id'] == selected_material_id]
+                
+                if not material_data.empty:
+                    material_info = material_data.iloc[0]
+                    
+                    # Hiển thị thông tin nguyên liệu
+                    st.write(f"**Tên nguyên liệu:** {material_info['name']}")
+                    st.write(f"**Đơn vị:** {material_info['unit']}")
+                    st.write(f"**Số lượng hiện tại:** {material_info['quantity']}")
+                    st.write(f"**Giá/Đơn vị:** {material_info['price_per_unit']:,.0f} VND")
+                    
+                    # Kiểm tra xem nguyên liệu có trong công thức nào không
+                    material_in_recipes = selected_material_id in st.session_state.recipes['material_id'].values
+                    
+                    if material_in_recipes:
+                        st.warning("⚠️ Nguyên liệu này đang được sử dụng trong các công thức sản phẩm. Xóa nguyên liệu có thể ảnh hưởng đến sản phẩm.")
+                        
+                        # Danh sách sản phẩm sử dụng nguyên liệu này
+                        product_recipes = st.session_state.recipes[st.session_state.recipes['material_id'] == selected_material_id]
+                        product_ids = product_recipes['product_id'].unique()
+                        
+                        # Lấy tên sản phẩm
+                        product_names = []
+                        for pid in product_ids:
+                            product_data = st.session_state.products[st.session_state.products['product_id'] == pid]
+                            if not product_data.empty:
+                                product_names.append(f"{pid} - {product_data['name'].iloc[0]}")
+                            else:
+                                product_names.append(f"{pid}")
+                        
+                        st.write("**Sản phẩm sử dụng nguyên liệu này:**")
+                        for product_name in product_names:
+                            st.write(f"- {product_name}")
+                    
+                    # Xóa xác nhận
+                    delete_confirmed = st.checkbox("Tôi hiểu rằng hành động này không thể hoàn tác", key="delete_material_confirm")
+                    
+                    if st.button("Xóa Nguyên liệu") and delete_confirmed:
+                        # 1. Xóa lịch sử chi phí nhập hàng liên quan đến nguyên liệu này
+                        if 'material_costs' in st.session_state and not st.session_state.material_costs.empty:
+                            st.session_state.material_costs = st.session_state.material_costs[
+                                st.session_state.material_costs['material_id'] != selected_material_id
+                            ]
+                        
+                        # 2. Xóa nguyên liệu khỏi bảng materials
+                        st.session_state.materials = st.session_state.materials[
+                            st.session_state.materials['material_id'] != selected_material_id
+                        ]
+                        
+                        if material_in_recipes:
+                            # Hiển thị cảnh báo về công thức bị ảnh hưởng
+                            st.warning(f"Các công thức sử dụng nguyên liệu {selected_material_id} sẽ không còn chính xác!")
+                        
+                        # Lưu dữ liệu sau khi xóa
+                        save_dataframe(st.session_state.materials, "materials.csv")
+                        save_dataframe(st.session_state.material_costs, "material_costs.csv")
+                        
+                        st.success(f"Đã xóa nguyên liệu {selected_material_id} thành công!")
+                        # Làm mới trang để cập nhật hiển thị
+                        st.rerun()
+        else:
+            st.info("Chưa có dữ liệu nguyên liệu để xóa.")
+
 # Product Management Tab
 elif tab_selection == "Quản lý Sản phẩm":
     st.header("Quản lý Sản phẩm")
@@ -2611,6 +2737,29 @@ elif tab_selection == "Quản lý Sản phẩm":
                             if not material_price_data.empty:
                                 material_price = material_price_data['price_per_unit'].iloc[0]
                                 cost += quantity * material_price
+
+                    # Thêm chi phí nhân công, khấu hao và chi phí khác từ product_costs
+                    # Chỉ áp dụng nếu có dữ liệu product_costs
+                    if 'product_costs' in st.session_state and not st.session_state.product_costs.empty:
+                        product_cost_data = st.session_state.product_costs[
+                            st.session_state.product_costs['product_id'] == product_id
+                        ]
+                        
+                        if not product_cost_data.empty:
+                            # Thêm chi phí nhân công (production_fee)
+                            if 'production_fee' in product_cost_data.columns:
+                                production_fee = product_cost_data['production_fee'].iloc[0]
+                                cost += production_fee
+                            
+                            # Thêm chi phí khác (other_fee)
+                            if 'other_fee' in product_cost_data.columns:
+                                other_fee = product_cost_data['other_fee'].iloc[0]
+                                cost += other_fee
+                            
+                            # Thêm chi phí khấu hao (Depreciation_fee)
+                            if 'Depreciation_fee' in product_cost_data.columns:
+                                depreciation_fee = product_cost_data['Depreciation_fee'].iloc[0]
+                                cost += depreciation_fee
                     
                     # Calculate profit margin
                     price = product['price']
