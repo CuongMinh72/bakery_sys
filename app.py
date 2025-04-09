@@ -12,7 +12,7 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import inch
 import io
 from reportlab.pdfgen import canvas
-from reportlab.lib.pagesizes import A1
+from reportlab.lib.pagesizes import A3
 from reportlab.lib.units import cm
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
@@ -738,17 +738,16 @@ def generate_invoice_content(invoice_id, order_id, as_pdf=False):
     store_address = "Đ/C: Số 10 ngõ 298 Đê La Thành, Đống Đa, Hà Nội"
     store_phone = "ĐT: 0988 159 268"
     
-    # PDF version optimized for A1 in portrait orientation
+    # PDF version optimized for A3
     buffer = io.BytesIO()
-    # A1 size in portrait: 59.4 x 84.1 cm (width x height)
-    width, height = A1  # Use A1 in portrait (vertical) orientation
-
-    # Create the PDF with A1 size in landscape
-    c = canvas.Canvas(buffer, pagesize=(width, height))
-
+    width, height = A3  # A3 size: 29.7 x 42.0 cm
+    
+    # Create the PDF with A3 size
+    c = canvas.Canvas(buffer, pagesize=A3)
+    
     # Set up font for Vietnamese
     font_name = setup_vietnamese_font()
-
+    
     # Function to use proper font with fallback
     def set_font(font_style, size):
         if font_name == 'Roboto':
@@ -758,137 +757,139 @@ def generate_invoice_content(invoice_id, order_id, as_pdf=False):
                 c.setFont(f"Helvetica{'-Bold' if font_style == 'bold' else ''}", size)
         else:
             c.setFont(f"Helvetica{'-Bold' if font_style == 'bold' else ''}", size)
-
+    
     # Simplified page break check - just starts a new page without headers
-    def check_page_break(current_y, min_y=10*cm):
+    def check_page_break(current_y, min_y=7*cm):
         if current_y < min_y:
             c.showPage()  # Just start a new page
-            return height - 8*cm  # Return to top of new page
+            return height - 5*cm  # Return to top of new page
         return current_y
-
-    # Adjusted margins for A1 paper in portrait
-    left_margin = 7*cm
-    right_margin = width - 7*cm
-
+    
+    # Adjusted margins for A3 paper
+    left_margin = 5*cm
+    right_margin = width - 5*cm
+    
     # Initialize y position with more space at the top
-    y_position = height - 8*cm
-
-    # Draw store name (centered) - larger font for A1
-    set_font('bold', 90)  # Increased font size for A1
+    y_position = height - 5*cm
+    
+    # Draw store name (centered) - larger font for A3
+    set_font('bold', 60)  # Increased font size for A3
     c.drawCentredString(width/2, y_position, store_name)
-    y_position -= 4*cm
-
-    # Draw store address (centered)
-    set_font('normal', 40)  # Increased font size for A1
-    c.drawCentredString(width/2, y_position, store_address)
-    y_position -= 2*cm
-    c.drawCentredString(width/2, y_position, store_phone)
-    y_position -= 3*cm
-
-    # Draw separator line - wider for A1
-    c.setLineWidth(3)  # Thicker line for A1
-    c.line(left_margin, y_position, right_margin, y_position)
-    y_position -= 3*cm
-
-    # Bill number with proper alignment for A1
-    set_font('bold', 60)  # Increased font size for A1
-    c.drawString(left_margin, y_position, "Số hóa đơn:")
-    c.drawString(left_margin + 15*cm, y_position, f"#{order_id}#")
-    y_position -= 3*cm
-
-    # Customer information with proper spacing for A1
-    set_font('normal', 50)  # Increased font size for A1
-    c.drawString(left_margin, y_position, f"Khách hàng: {customer_name}")
     y_position -= 2.5*cm
-
+    
+    # Draw store address (centered)
+    set_font('normal', 24)  # Increased font size for A3
+    c.drawCentredString(width/2, y_position, store_address)
+    y_position -= 1.2*cm
+    c.drawCentredString(width/2, y_position, store_phone)
+    y_position -= 2*cm
+    
+    # Draw separator line - wider for A3
+    c.setLineWidth(2)  # Thicker line for A3
+    c.line(left_margin, y_position, right_margin, y_position)
+    y_position -= 2*cm
+    
+    # Bill number with proper alignment for A3
+    set_font('bold', 36)  # Increased font size for A3
+    c.drawString(left_margin, y_position, "Số hóa đơn:")
+    c.drawString(left_margin + 10*cm, y_position, f"#{order_id}#")
+    y_position -= 2*cm
+    
+    # Customer information with proper spacing for A3
+    set_font('normal', 30)  # Increased font size for A3
+    c.drawString(left_margin, y_position, f"Khách hàng: {customer_name}")
+    y_position -= 1.5*cm
+    
     # Phone
     y_position = check_page_break(y_position)
-    set_font('normal', 50)  # Increased font size for A1
+    set_font('normal', 30)  # Increased font size for A3
     c.drawString(left_margin, y_position, f"Số điện thoại: {customer_phone}")
-    y_position -= 2.5*cm
-
+    y_position -= 1.5*cm
+    
     # Address
     y_position = check_page_break(y_position)
-    set_font('normal', 50)  # Increased font size for A1
+    set_font('normal', 30)  # Increased font size for A3
     c.drawString(left_margin, y_position, f"Địa chỉ: {customer_address}")
-    y_position -= 3*cm
-
+    y_position -= 2*cm
+    
     # Date
     y_position = check_page_break(y_position)
-    set_font('normal', 50)  # Increased font size for A1
+    set_font('normal', 30)  # Increased font size for A3
     c.drawString(left_margin, y_position, f"Ngày: {order_data['date']}")
-    y_position -= 3*cm
-
+    y_position -= 2*cm
+    
     # Draw separator line
     y_position = check_page_break(y_position)
-    c.setLineWidth(3)
+    c.setLineWidth(2)
     c.line(left_margin, y_position, right_margin, y_position)
-    y_position -= 3*cm
-
-    # Column headers with better alignment for A1
+    y_position -= 2*cm
+    
+    # Column headers with better alignment for A3
     y_position = check_page_break(y_position)
-    set_font('bold', 60)  # Increased font size for A1
+    set_font('bold', 36)  # Increased font size for A3
     c.drawString(left_margin, y_position, "Sản phẩm x SL")
     c.drawRightString(right_margin, y_position, "Giá")
-    y_position -= 2.5*cm
-
-    # Draw items with better spacing and alignment for A1
+    y_position -= 1.5*cm
+    
+    # Draw items with better spacing and alignment for A3
     for _, item in order_items.iterrows():
         y_position = check_page_break(y_position)
-        set_font('normal', 50)  # Increased font size for A1
+        set_font('normal', 30)  # Increased font size for A3
         c.drawString(left_margin, y_position, f"{item['name']} x {item['quantity']}")
         # Right-align the price with consistent formatting
         c.drawRightString(right_margin, y_position, f"{item['subtotal']:,.0f}")
-        y_position -= 2.5*cm
-
+        y_position -= 1.5*cm
+    
     # Draw separator line
     y_position = check_page_break(y_position)
-    c.setLineWidth(3)
+    c.setLineWidth(2)
     c.line(left_margin, y_position, right_margin, y_position)
-    y_position -= 3*cm
-
+    y_position -= 2*cm
+    
     # Items/Qty count with proper alignment
     y_position = check_page_break(y_position)
-    set_font('normal', 50)  # Increased font size for A1
+    set_font('normal', 30)  # Increased font size for A3
     c.drawString(left_margin, y_position, "Số lượng mặt hàng/SL")
     c.drawRightString(right_margin, y_position, f"{len(order_items)}/{order_items['quantity'].sum()}")
-    y_position -= 3*cm
-
+    y_position -= 2*cm
+    
     # Subtotal
     y_position = check_page_break(y_position)
-    set_font('normal', 50)
+    set_font('normal', 30)
     c.drawString(left_margin, y_position, "Tổng tiền hàng")
     c.drawRightString(right_margin, y_position, f"{subtotal_amount:,.0f}")
-    y_position -= 2.5*cm
-
+    y_position -= 1.5*cm
+    
     # Shipping fee
     y_position = check_page_break(y_position)
-    set_font('normal', 50)
+    set_font('normal', 30)
     c.drawString(left_margin, y_position, "Phí vận chuyển")
     c.drawRightString(right_margin, y_position, f"{shipping_fee:,.0f}")
-    y_position -= 2.5*cm
+    y_position -= 1.5*cm
+    # Trong hàm generate_invoice_content, thêm đoạn sau để hiển thị thông tin giảm giá
 
-    # Discount (if applicable)
+    # Lấy thông tin giảm giá (nếu có)
     discount_amount = order_data.get('discount_amount', 0)
+    # Đối với phiên bản PDF, thêm dòng hiển thị giảm giá vào trước tổng thanh toán
     if discount_amount > 0:
         y_position = check_page_break(y_position)
-        set_font('normal', 50)
+        set_font('normal', 30)
         c.drawString(left_margin, y_position, "Giảm giá")
         c.drawRightString(right_margin, y_position, f"-{discount_amount:,.0f}")
-        y_position -= 2.5*cm
+        y_position -= 1.5*cm
 
     # Total with proper alignment and emphasis
     y_position = check_page_break(y_position)
-    set_font('bold', 70)  # Increased font size for A1
+    set_font('bold', 40)  # Increased font size for A3
     c.drawString(left_margin, y_position, "Tổng thanh toán")
     c.drawRightString(right_margin, y_position, f"{total_amount:,.0f}")
-    y_position -= 6*cm  # Tăng khoảng cách sau dòng tổng tiền
+    y_position -= 4*cm  # Tăng khoảng cách sau dòng tổng tiền
 
     # Check if we need to start a new page for QR code and thank you message
-    # Need at least 35cm for QR code, payment info, and thank you message
-    if y_position < 35*cm:
+    # Need at least 20cm for QR code, payment info, and thank you message
+    if y_position < 20*cm:
         c.showPage()
-        y_position = height - 15*cm
+        y_position = height - 10*cm
 
     # Add QR code at the center of the page
     try:
@@ -897,49 +898,115 @@ def generate_invoice_content(invoice_id, order_id, as_pdf=False):
         # Check if file exists before trying to draw it
         if os.path.exists(qr_image_path):
             # Draw QR code with proper positioning
-            qr_size = 20*cm  # Larger QR code size for A1
+            qr_size = 14*cm  # QR code size
             
             # Calculate position - center of page horizontally
             qr_x = (width - qr_size) / 2
             
             # Thêm dòng separator trước QR code
-            c.setLineWidth(2)
+            c.setLineWidth(1)
             c.line(left_margin, y_position, right_margin, y_position)
-            y_position -= 5*cm  # Thêm khoảng cách trước QR code
+            y_position -= 3*cm  # Thêm khoảng cách trước QR code
             
             # Draw QR code centered on the page
-            c.drawImage(qr_image_path, qr_x, y_position - 20*cm, width=qr_size, height=qr_size)
+            c.drawImage(qr_image_path, qr_x, y_position - 14*cm, width=qr_size, height=qr_size)
             
             # Draw payment information centered below QR code
-            set_font('bold', 55)
-            c.drawCentredString(width/2, y_position - 22*cm, "Quét để thanh toán")
+            set_font('bold', 32)
+            c.drawCentredString(width/2, y_position - 15*cm, "Quét để thanh toán")
             
-            set_font('normal', 50)
+            set_font('normal', 30)
             # Account information
             account_number = "0011000597767"
             account_name = "NGUYỄN VƯƠNG HẰNG"
-            c.drawCentredString(width/2, y_position - 24*cm, f"STK: {account_number}")
-            c.drawCentredString(width/2, y_position - 26*cm, f"Tên: {account_name}")
+            c.drawCentredString(width/2, y_position - 16*cm, f"STK: {account_number}")
+            c.drawCentredString(width/2, y_position - 17*cm, f"Tên: {account_name}")
             
             # Draw separator line below QR code info
-            c.setLineWidth(2)
-            c.line(left_margin, y_position - 28*cm, right_margin, y_position - 28*cm)
+            c.setLineWidth(1)
+            c.line(left_margin, y_position - 19*cm, right_margin, y_position - 19*cm)
             
             # Thank you message with proper formatting and quotes
-            set_font('normal', 60)  # Increased font size for A1
-            c.drawCentredString(width/2, y_position - 31*cm, 'XIN CẢM ƠN QUÝ KHÁCH')
+            set_font('normal', 36)  # Increased font size for A3
+            c.drawCentredString(width/2, y_position - 21*cm, 'XIN CẢM ƠN QUÝ KHÁCH')
     except Exception as e:
         # More descriptive error handling
         print(f"QR code error: {str(e)}")
         # If QR code insertion fails, still draw the thank you message
-        set_font('normal', 60)
-        c.drawCentredString(width/2, y_position - 6*cm, 'XIN CẢM ƠN QUÝ KHÁCH')
+        set_font('normal', 36)
+        c.drawCentredString(width/2, y_position - 4*cm, 'XIN CẢM ƠN QUÝ KHÁCH')# Lấy thông tin giảm giá (nếu có)
+    discount_amount = order_data.get('discount_amount', 0)
+    # Đối với phiên bản PDF, thêm dòng hiển thị giảm giá vào trước tổng thanh toán
+    if discount_amount > 0:
+        y_position = check_page_break(y_position)
+        set_font('normal', 30)
+        c.drawString(left_margin, y_position, "Giảm giá")
+        c.drawRightString(right_margin, y_position, f"-{discount_amount:,.0f}")
+        y_position -= 1.5*cm
 
+    # Total with proper alignment and emphasis
+    y_position = check_page_break(y_position)
+    set_font('bold', 40)  # Increased font size for A3
+    c.drawString(left_margin, y_position, "Tổng thanh toán")
+    c.drawRightString(right_margin, y_position, f"{total_amount:,.0f}")
+    y_position -= 4*cm  # Tăng khoảng cách sau dòng tổng tiền
+
+    # Check if we need to start a new page for QR code and thank you message
+    # Need at least 20cm for QR code, payment info, and thank you message
+    if y_position < 20*cm:
+        c.showPage()
+        y_position = height - 10*cm
+
+    # Add QR code at the center of the page
+    try:
+        qr_image_path = "assets/qr_code.png"
+        
+        # Check if file exists before trying to draw it
+        if os.path.exists(qr_image_path):
+            # Draw QR code with proper positioning
+            qr_size = 14*cm  # QR code size
+            
+            # Calculate position - center of page horizontally
+            qr_x = (width - qr_size) / 2
+            
+            # Thêm dòng separator trước QR code
+            c.setLineWidth(1)
+            c.line(left_margin, y_position, right_margin, y_position)
+            y_position -= 3*cm  # Thêm khoảng cách trước QR code
+            
+            # Draw QR code centered on the page
+            c.drawImage(qr_image_path, qr_x, y_position - 14*cm, width=qr_size, height=qr_size)
+            
+            # Draw payment information centered below QR code
+            set_font('bold', 32)
+            c.drawCentredString(width/2, y_position - 15*cm, "Quét để thanh toán")
+            
+            set_font('normal', 30)
+            # Account information
+            account_number = "0011000597767"
+            account_name = "NGUYỄN VƯƠNG HẰNG"
+            c.drawCentredString(width/2, y_position - 16*cm, f"STK: {account_number}")
+            c.drawCentredString(width/2, y_position - 17*cm, f"Tên: {account_name}")
+            
+            # Draw separator line below QR code info
+            c.setLineWidth(1)
+            c.line(left_margin, y_position - 19*cm, right_margin, y_position - 19*cm)
+            
+            # Thank you message with proper formatting and quotes
+            set_font('normal', 36)  # Increased font size for A3
+            c.drawCentredString(width/2, y_position - 21*cm, 'XIN CẢM ƠN QUÝ KHÁCH')
+    except Exception as e:
+        # More descriptive error handling
+        print(f"QR code error: {str(e)}")
+        # If QR code insertion fails, still draw the thank you message
+        set_font('normal', 36)
+        c.drawCentredString(width/2, y_position - 4*cm, 'XIN CẢM ƠN QUÝ KHÁCH')
+    
     # Save the PDF
     c.save()
     pdf_data = buffer.getvalue()
     buffer.close()
-
+    
     return pdf_data
     
 def download_link(content, filename, text, is_pdf=False):
