@@ -2537,7 +2537,7 @@ elif tab_selection == "Theo dõi Doanh thu":
                                         st.rerun()
                                     else:
                                         st.error("Vui lòng xác nhận việc xóa bằng cách đánh dấu vào ô xác nhận.")
-                                        
+
                     else:
                         st.info(f"Không có dữ liệu chi phí marketing trong khoảng từ {start_date_str} đến {end_date_str}.")
             except Exception as e:
@@ -3204,7 +3204,7 @@ elif tab_selection == "Kho Nguyên liệu":
 elif tab_selection == "Quản lý Sản phẩm":
     st.header("Quản lý Sản phẩm")
     
-    price_tab1, price_tab2, price_tab3, price_tab4 = st.tabs(["Xem Sản phẩm", "Cập nhật Giá", "Thêm Sản phẩm Mới", "Xóa Sản phẩm"])
+    price_tab1, price_tab2, price_tab3, price_tab4 = st.tabs(["Xem Sản phẩm", "Cập nhật Sản phẩm", "Thêm Sản phẩm Mới", "Xóa Sản phẩm"])
     
     with price_tab1:
         st.subheader("Sản phẩm Hiện tại")
