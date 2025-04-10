@@ -596,36 +596,50 @@ def adjust_income_after_delete_invoice(invoice_id, order_id):
                 try:
                     cost_result = calculate_cost_of_goods(order_id)
                     if isinstance(cost_result, dict):
+                        # CHỖ NÀY CÓ SỬA - chỉ lấy chi phí nguyên liệu
                         order_cost_of_goods = float(cost_result.get('material_cost', 0))
-                        order_other_costs = float(cost_result.get('other_cost', 0))
+                        # CHỖ NÀY CÓ SỬA - không tính other_cost thành phần riêng
+                        # vì sẽ lấy từ dữ liệu chi tiết hơn bên dưới
                     else:
                         order_cost_of_goods = float(cost_result)
-                        order_other_costs = 0
                 except Exception as e:
                     if show_debug:
                         st.sidebar.error(f"Error calculating cost_of_goods for deletion: {str(e)}")
                     order_cost_of_goods = 0
-                    order_other_costs = 0
                 
-                # Tính chi phí khấu hao
+                # Tính chi phí khác và chi phí khấu hao từ product_costs
+                order_other_costs = 0
                 order_depreciation_costs = 0
                 for _, item in order_items.iterrows():
                     product_id = item['product_id']
                     quantity = float(item['quantity'])
                     
-                    # Lấy thông tin chi phí khấu hao sản phẩm
+                    # Lấy thông tin chi phí khác và chi phí khấu hao sản phẩm
                     if 'product_costs' in st.session_state and not st.session_state.product_costs.empty:
                         product_cost_data = st.session_state.product_costs[st.session_state.product_costs['product_id'] == product_id]
                         
-                        if not product_cost_data.empty and 'Depreciation_fee' in product_cost_data.columns:
-                            try:
-                                depreciation_fee = float(product_cost_data['Depreciation_fee'].iloc[0])
-                                order_depreciation_costs += depreciation_fee * quantity
-                            except Exception as e:
-                                if show_debug:
-                                    st.sidebar.error(f"Error calculating depreciation: {str(e)}")
+                        if not product_cost_data.empty:
+                            # Chi phí khác
+                            if 'other_fee' in product_cost_data.columns:
+                                try:
+                                    other_fee = float(product_cost_data['other_fee'].iloc[0])
+                                    order_other_costs += other_fee * quantity
+                                except Exception as e:
+                                    if show_debug:
+                                        st.sidebar.error(f"Error calculating other costs: {str(e)}")
+                            
+                            # Chi phí khấu hao
+                            if 'Depreciation_fee' in product_cost_data.columns:
+                                try:
+                                    depreciation_fee = float(product_cost_data['Depreciation_fee'].iloc[0])
+                                    order_depreciation_costs += depreciation_fee * quantity
+                                except Exception as e:
+                                    if show_debug:
+                                        st.sidebar.error(f"Error calculating depreciation: {str(e)}")
                 
-                # Tính lợi nhuận của đơn hàng
+                # Tính lợi nhuận của đơn hàng - CẦN SỬA ĐỂ PHẢN ÁNH ĐÚNG CÔNG THỨC BAN ĐẦU
+                # Công thức trong update_income:
+                # profit = float(total_amount) - float(cost_of_goods) - float(other_costs) - float(depreciation_costs)
                 order_profit = total_amount - order_cost_of_goods - order_other_costs - order_depreciation_costs
                 
                 # Trừ các giá trị từ dòng doanh thu
@@ -1282,9 +1296,16 @@ elif tab_selection == "Theo dõi Doanh thu":
         st.session_state.material_costs = pd.DataFrame(columns=[
             'date', 'material_id', 'quantity', 'total_cost', 'supplier'
         ])
+
+    if 'marketing_costs' not in st.session_state:
+        st.session_state.marketing_costs = pd.DataFrame(columns=[
+            'date', 'campaign_name', 'description', 'platform', 'amount', 'notes'
+        ])
     
-    income_tab1, income_tab2, income_tab3, income_tab4 = st.tabs(["Báo cáo Tổng quan", "Bảng Doanh thu & Chi phí", "Chi phí Nguyên liệu", "Chi phí Nhân công"])
-    
+    income_tab1, income_tab2, income_tab3, income_tab4, income_tab5 = st.tabs([
+            "Báo cáo Tổng quan", "Bảng Doanh thu & Chi phí", 
+            "Chi phí Nguyên liệu", "Chi phí Nhân công", "Chi phí Marketing"
+        ])    
     # Helper function to create monthly summary
     # Cập nhật hàm create_monthly_summary để phản ánh đúng cấu trúc chi phí mới
 
@@ -2042,7 +2063,7 @@ elif tab_selection == "Theo dõi Doanh thu":
                 # Save to storage
                 save_dataframe(st.session_state.labor_costs, "labor_costs.csv")
         
-         # Display existing labor costs
+        # Display existing labor costs
         if 'labor_costs' in st.session_state and not st.session_state.labor_costs.empty:
             st.write("### Chi phí Nhân công Đã Lưu")
             
@@ -2087,6 +2108,7 @@ elif tab_selection == "Theo dõi Doanh thu":
                         
                         # Format for display
                         display_labor_costs = pd.DataFrame({
+                            'ID': filtered_labor_costs.index,
                             'Ngày': filtered_labor_costs['date'],
                             'Người thực hiện': filtered_labor_costs['worker_name'],
                             'Mô tả công việc': filtered_labor_costs['description'],
@@ -2097,6 +2119,52 @@ elif tab_selection == "Theo dõi Doanh thu":
                         
                         # Display the filtered data
                         st.dataframe(display_labor_costs)
+                        
+                        # Thêm chức năng xóa chi phí nhân công
+                        st.subheader("Xóa Chi phí Nhân công")
+                        
+                        # Chọn ID dòng cần xóa
+                        if len(filtered_labor_costs) > 0:
+                            delete_options = []
+                            for idx, row in filtered_labor_costs.iterrows():
+                                delete_options.append(f"ID: {idx} - {row['date']} - {row['worker_name']} - {row['description']} - {row['total_cost']:,.0f} VND")
+                            
+                            selected_labor_to_delete = st.selectbox(
+                                "Chọn chi phí nhân công để xóa",
+                                options=delete_options,
+                                key="delete_labor_select"
+                            )
+                            
+                            if selected_labor_to_delete:
+                                # Lấy ID từ chuỗi đã chọn
+                                labor_id = int(selected_labor_to_delete.split(" - ")[0].replace("ID: ", ""))
+                                
+                                # Hiển thị thông tin chi tiết về dòng sẽ xóa
+                                labor_to_delete = labor_costs_df.loc[labor_id]
+                                st.write(f"**Chi tiết chi phí sẽ xóa:**")
+                                st.write(f"- Ngày: {labor_to_delete['date']}")
+                                st.write(f"- Người thực hiện: {labor_to_delete['worker_name']}")
+                                st.write(f"- Mô tả: {labor_to_delete['description']}")
+                                st.write(f"- Tổng chi phí: {labor_to_delete['total_cost']:,.0f} VND")
+                                
+                                # Nút xác nhận xóa
+                                confirm_delete = st.checkbox("Tôi xác nhận muốn xóa chi phí này", key="confirm_delete_labor")
+                                
+                                if st.button("Xóa Chi phí Nhân công", key="delete_labor_button"):
+                                    if confirm_delete:
+                                        # Xóa dòng chi phí được chọn
+                                        st.session_state.labor_costs = st.session_state.labor_costs.drop(labor_id)
+                                        
+                                        # Reset index sau khi xóa
+                                        st.session_state.labor_costs = st.session_state.labor_costs.reset_index(drop=True)
+                                        
+                                        # Lưu lại dữ liệu
+                                        save_dataframe(st.session_state.labor_costs, "labor_costs.csv")
+                                        
+                                        st.success(f"Đã xóa chi phí nhân công thành công!")
+                                        st.rerun()
+                                    else:
+                                        st.error("Vui lòng xác nhận việc xóa bằng cách đánh dấu vào ô xác nhận.")
                         
                         # Group by worker
                         worker_grouped = filtered_labor_costs.groupby('worker_name').agg({
@@ -2120,6 +2188,223 @@ elif tab_selection == "Theo dõi Doanh thu":
                 st.info("Vui lòng kiểm tra lại dữ liệu chi phí nhân công.")
         else:
             st.info("Chưa có dữ liệu chi phí nhân công. Vui lòng thêm chi phí nhân công để theo dõi.")
+
+    # Thêm tab Chi phí Marketing
+    with income_tab5:
+        st.subheader("Chi phí Marketing")
+        
+        # Form thêm chi phí marketing mới
+        st.write("### Thêm Chi phí Marketing")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            # Ngày chi phí
+            marketing_date = st.date_input(
+                "Ngày", 
+                value=datetime.date.today(),
+                key="marketing_cost_date"
+            ).strftime("%Y-%m-%d")
+            
+            # Tên chiến dịch
+            campaign_name = st.text_input("Tên chiến dịch", key="campaign_name")
+        
+        with col2:
+            # Mô tả chi phí
+            marketing_description = st.text_input("Mô tả chi tiết", key="marketing_description")
+            
+            # Nền tảng marketing
+            platform_options = ["Facebook", "Google", "TikTok", "Instagram", "Báo/Tạp chí", "Biển quảng cáo", "Khác"]
+            platform = st.selectbox("Nền tảng", options=platform_options, key="marketing_platform")
+            
+            if platform == "Khác":
+                custom_platform = st.text_input("Nhập tên nền tảng", key="custom_platform")
+                platform = custom_platform
+        
+        # Chi phí
+        amount = st.number_input(
+            "Chi phí (VND)", 
+            min_value=1000, 
+            value=100000, 
+            step=10000,
+            key="marketing_amount"
+        )
+        
+        # Ghi chú bổ sung
+        marketing_notes = st.text_area("Ghi chú", key="marketing_notes")
+        
+        # Nút lưu chi phí
+        if st.button("Lưu Chi phí Marketing"):
+            if not campaign_name:
+                st.error("Vui lòng nhập tên chiến dịch")
+            elif not marketing_description:
+                st.error("Vui lòng nhập mô tả chi tiết")
+            else:
+                # Tạo bản ghi chi phí mới
+                new_marketing_cost = pd.DataFrame({
+                    'date': [marketing_date],
+                    'campaign_name': [campaign_name],
+                    'description': [marketing_description],
+                    'platform': [platform],
+                    'amount': [amount],
+                    'notes': [marketing_notes]
+                })
+                
+                # Cập nhật session state
+                if 'marketing_costs' not in st.session_state:
+                    st.session_state.marketing_costs = new_marketing_cost
+                else:
+                    st.session_state.marketing_costs = pd.concat([st.session_state.marketing_costs, new_marketing_cost], ignore_index=True)
+                
+                st.success(f"Đã lưu chi phí marketing: {amount:,.0f} VND")
+                
+                # Lưu dữ liệu
+                save_dataframe(st.session_state.marketing_costs, "marketing_costs.csv")
+        
+        # Hiển thị chi phí marketing hiện có
+        if 'marketing_costs' in st.session_state and not st.session_state.marketing_costs.empty:
+            st.write("### Chi phí Marketing Đã Lưu")
+            
+            # Format chi phí marketing để hiển thị
+            marketing_costs_df = st.session_state.marketing_costs.copy()
+            
+            # Bộ lọc ngày
+            try:
+                # Lấy ngày min và max từ dữ liệu
+                min_marketing_date_str = marketing_costs_df['date'].min()
+                max_marketing_date_str = marketing_costs_df['date'].max()
+                
+                min_marketing_date = datetime.datetime.strptime(min_marketing_date_str, '%Y-%m-%d').date()
+                max_marketing_date = datetime.datetime.strptime(max_marketing_date_str, '%Y-%m-%d').date()
+                
+                # Tạo bộ chọn khoảng thời gian
+                marketing_date_range = st.date_input(
+                    "Chọn Khoảng thời gian",
+                    [min_marketing_date, max_marketing_date],
+                    min_value=min_marketing_date,
+                    max_value=max_marketing_date,
+                    key="marketing_cost_date_range"
+                )
+                
+                if isinstance(marketing_date_range, (list, tuple)) and len(marketing_date_range) == 2:
+                    start_date, end_date = marketing_date_range
+                    
+                    # Chuyển đổi ngày sang định dạng chuỗi để lọc
+                    start_date_str = start_date.strftime('%Y-%m-%d')
+                    end_date_str = end_date.strftime('%Y-%m-%d')
+                    
+                    # Lọc chi phí marketing
+                    filtered_marketing_costs = marketing_costs_df[
+                        (marketing_costs_df['date'] >= start_date_str) & 
+                        (marketing_costs_df['date'] <= end_date_str)
+                    ]
+                    
+                    if not filtered_marketing_costs.empty:
+                        # Hiển thị tổng chi phí cho khoảng thời gian
+                        total_period_marketing = filtered_marketing_costs['amount'].sum()
+                        st.metric("Tổng Chi phí Marketing", f"{total_period_marketing:,.0f} VND")
+                        
+                        # Format để hiển thị
+                        display_marketing_costs = pd.DataFrame({
+                            'ID': filtered_marketing_costs.index,
+                            'Ngày': filtered_marketing_costs['date'],
+                            'Chiến dịch': filtered_marketing_costs['campaign_name'],
+                            'Mô tả': filtered_marketing_costs['description'],
+                            'Nền tảng': filtered_marketing_costs['platform'],
+                            'Chi phí': filtered_marketing_costs['amount'].apply(lambda x: f"{x:,.0f} VND")
+                        })
+                        
+                        # Hiển thị dữ liệu đã lọc
+                        st.dataframe(display_marketing_costs)
+                        
+                        # Thêm chức năng xóa chi phí marketing
+                        st.subheader("Xóa Chi phí Marketing")
+                        
+                        # Chọn ID dòng cần xóa
+                        if len(filtered_marketing_costs) > 0:
+                            delete_marketing_options = []
+                            for idx, row in filtered_marketing_costs.iterrows():
+                                delete_marketing_options.append(f"ID: {idx} - {row['date']} - {row['campaign_name']} - {row['platform']} - {row['amount']:,.0f} VND")
+                            
+                            selected_marketing_to_delete = st.selectbox(
+                                "Chọn chi phí marketing để xóa",
+                                options=delete_marketing_options,
+                                key="delete_marketing_select"
+                            )
+                            
+                            if selected_marketing_to_delete:
+                                # Lấy ID từ chuỗi đã chọn
+                                marketing_id = int(selected_marketing_to_delete.split(" - ")[0].replace("ID: ", ""))
+                                
+                                # Hiển thị thông tin chi tiết về dòng sẽ xóa
+                                marketing_to_delete = marketing_costs_df.loc[marketing_id]
+                                st.write(f"**Chi tiết chi phí sẽ xóa:**")
+                                st.write(f"- Ngày: {marketing_to_delete['date']}")
+                                st.write(f"- Chiến dịch: {marketing_to_delete['campaign_name']}")
+                                st.write(f"- Nền tảng: {marketing_to_delete['platform']}")
+                                st.write(f"- Chi phí: {marketing_to_delete['amount']:,.0f} VND")
+                                
+                                # Nút xác nhận xóa
+                                confirm_delete_marketing = st.checkbox("Tôi xác nhận muốn xóa chi phí này", key="confirm_delete_marketing")
+                                
+                                if st.button("Xóa Chi phí Marketing", key="delete_marketing_button"):
+                                    if confirm_delete_marketing:
+                                        # Xóa dòng chi phí được chọn
+                                        st.session_state.marketing_costs = st.session_state.marketing_costs.drop(marketing_id)
+                                        
+                                        # Reset index sau khi xóa
+                                        st.session_state.marketing_costs = st.session_state.marketing_costs.reset_index(drop=True)
+                                        
+                                        # Lưu lại dữ liệu
+                                        save_dataframe(st.session_state.marketing_costs, "marketing_costs.csv")
+                                        
+                                        st.success(f"Đã xóa chi phí marketing thành công!")
+                                        st.rerun()
+                                    else:
+                                        st.error("Vui lòng xác nhận việc xóa bằng cách đánh dấu vào ô xác nhận.")
+                        
+                        # Nhóm theo nền tảng
+                        platform_grouped = filtered_marketing_costs.groupby('platform').agg({
+                            'amount': 'sum'
+                        }).reset_index()
+                        
+                        # Format để hiển thị
+                        platform_summary = pd.DataFrame({
+                            'Nền tảng': platform_grouped['platform'],
+                            'Tổng chi phí': platform_grouped['amount'].apply(lambda x: f"{x:,.0f} VND")
+                        })
+                        
+                        st.subheader("Chi phí theo Nền tảng")
+                        st.dataframe(platform_summary)
+                        
+                        # Biểu đồ chi phí theo nền tảng
+                        st.subheader("Biểu đồ Chi phí theo Nền tảng")
+                        chart_data = pd.DataFrame({
+                            'Nền tảng': platform_grouped['platform'],
+                            'Chi phí': platform_grouped['amount']
+                        })
+                        st.bar_chart(chart_data.set_index('Nền tảng'))
+                        
+                        # Nhóm theo chiến dịch
+                        campaign_grouped = filtered_marketing_costs.groupby('campaign_name').agg({
+                            'amount': 'sum'
+                        }).reset_index()
+                        
+                        # Format để hiển thị
+                        campaign_summary = pd.DataFrame({
+                            'Chiến dịch': campaign_grouped['campaign_name'],
+                            'Tổng chi phí': campaign_grouped['amount'].apply(lambda x: f"{x:,.0f} VND")
+                        })
+                        
+                        st.subheader("Chi phí theo Chiến dịch")
+                        st.dataframe(campaign_summary)
+                    else:
+                        st.info(f"Không có dữ liệu chi phí marketing trong khoảng từ {start_date_str} đến {end_date_str}.")
+            except Exception as e:
+                st.error(f"Lỗi khi xử lý dữ liệu chi phí marketing: {str(e)}")
+                st.info("Vui lòng kiểm tra lại dữ liệu chi phí marketing.")
+        else:
+            st.info("Chưa có dữ liệu chi phí marketing. Vui lòng thêm chi phí marketing để theo dõi.")
 
 # Materials Inventory Tab - Updated with Out-of-Stock Notifications
 elif tab_selection == "Kho Nguyên liệu":
@@ -2865,7 +3150,7 @@ elif tab_selection == "Quản lý Sản phẩm":
             st.info("Chưa có dữ liệu sản phẩm.")
     
     with price_tab2:
-        st.subheader("Cập nhật Giá Sản phẩm")
+        st.subheader("Cập nhật Sản phẩm")
         
         if not st.session_state.products.empty:
             # Create a list of options for the selectbox
@@ -2888,16 +3173,244 @@ elif tab_selection == "Quản lý Sản phẩm":
                 
                 if not product_data.empty:
                     product_idx = product_data.index[0]
-                    current_price = st.session_state.products.at[product_idx, 'price']
+                    current_product = product_data.iloc[0]
                     
-                    new_price = st.number_input("Giá Mới", min_value=1000, value=int(current_price), step=1000)
-                    
-                    if st.button("Cập nhật Giá"):
-                        st.session_state.products.at[product_idx, 'price'] = new_price
-                        st.success(f"Giá sản phẩm {selected_product_id} đã được cập nhật thành công!")
+                    st.write("### Thông tin cơ bản")
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        new_product_name = st.text_input("Tên Sản phẩm", value=current_product['name'])
+                        new_product_category = st.text_input("Phân loại", value=current_product['category'])
+                    with col2:
+                        new_price = st.number_input("Giá", min_value=1000, value=int(current_product['price']), step=1000)
                         
-                        # Save products data
+                        # Add unit selection for products
+                        current_unit = current_product['unit'] if 'unit' in current_product else "cái"
+                        unit_options_product = ["cái", "hộp", "kg", "miếng", "gói", "phần", "Khác"]
+                        
+                        if current_unit in unit_options_product:
+                            default_unit_index = unit_options_product.index(current_unit)
+                        else:
+                            default_unit_index = len(unit_options_product) - 1  # "Khác"
+                            
+                        selected_unit_option_product = st.selectbox(
+                            "Đơn vị Sản phẩm", 
+                            options=unit_options_product, 
+                            index=default_unit_index,
+                            key="update_product_unit_select"
+                        )
+
+                        if selected_unit_option_product == "Khác":
+                            product_unit = st.text_input("Nhập đơn vị sản phẩm:", 
+                                                        value="" if current_unit in unit_options_product else current_unit,
+                                                        key="update_custom_product_unit")
+                        else:
+                            product_unit = selected_unit_option_product
+                    
+                    # Get current cost information if it exists
+                    current_production_fee = 0
+                    current_other_fee = 0
+                    current_depreciation_fee = 0
+                    
+                    if 'product_costs' in st.session_state and not st.session_state.product_costs.empty:
+                        product_cost_data = st.session_state.product_costs[
+                            st.session_state.product_costs['product_id'] == selected_product_id
+                        ]
+                        
+                        if not product_cost_data.empty:
+                            if 'production_fee' in product_cost_data.columns:
+                                current_production_fee = product_cost_data['production_fee'].iloc[0]
+                            if 'other_fee' in product_cost_data.columns:
+                                current_other_fee = product_cost_data['other_fee'].iloc[0]
+                            if 'Depreciation_fee' in product_cost_data.columns:
+                                current_depreciation_fee = product_cost_data['Depreciation_fee'].iloc[0]
+                    
+                    # Add direct production fee and other costs inputs
+                    st.write("### Chi phí sản xuất")
+                    col1, col2, col3 = st.columns(3)
+                    with col1:
+                        production_fee = st.number_input(
+                            "Chi phí nhân công (VND)", 
+                            min_value=0, 
+                            value=int(current_production_fee), 
+                            step=1000, 
+                            key="update_production_fee"
+                        )
+                        st.caption("Chi phí liên quan đến quá trình sản xuất")
+
+                    with col2:
+                        other_fee = st.number_input(
+                            "Chi phí khác (VND)", 
+                            min_value=0, 
+                            value=int(current_other_fee), 
+                            step=1000, 
+                            key="update_other_fee"
+                        )
+                        st.caption("Các chi phí phát sinh khác")
+
+                    with col3:
+                        depreciation_fee = st.number_input(
+                            "Chi phí khấu hao (VND)", 
+                            min_value=0, 
+                            value=int(current_depreciation_fee), 
+                            step=1000, 
+                            key="update_depreciation_fee"
+                        )
+                        st.caption("Các chi phí khấu hao tài sản cố định")
+                    
+                    st.write("### Công thức sản phẩm")
+                    st.write("Cập nhật số lượng nguyên liệu cần thiết cho sản phẩm này:")
+                    
+                    # Current recipe
+                    current_recipe = st.session_state.recipes[st.session_state.recipes['product_id'] == selected_product_id]
+                    
+                    # Materials for recipe
+                    recipe_materials = []
+                    total_material_cost = 0
+                    
+                    if not st.session_state.materials.empty:
+                        for _, material in st.session_state.materials.iterrows():
+                            material_id = material['material_id']
+                            
+                            # Get current quantity from recipe if it exists
+                            current_quantity = 0
+                            if not current_recipe.empty:
+                                material_in_recipe = current_recipe[current_recipe['material_id'] == material_id]
+                                if not material_in_recipe.empty:
+                                    current_quantity = material_in_recipe['quantity'].iloc[0]
+                            
+                            col1, col2, col3 = st.columns([3, 1, 2])
+                            with col1:
+                                st.write(f"{material['name']} ({material['unit']})")
+                            with col2:
+                                quantity = st.number_input(
+                                    f"SL",
+                                    min_value=0.0,
+                                    value=float(current_quantity),
+                                    step=0.00001,
+                                    format="%.5f",
+                                    key=f"update_recipe_{material_id}"
+                                )
+                            with col3:
+                                if quantity > 0:
+                                    material_cost = quantity * material['price_per_unit']
+                                    st.write(f"{material_cost:,.0f} VND")
+                                    total_material_cost += material_cost
+                                else:
+                                    st.write("0 VND")
+                            
+                            if quantity > 0:
+                                recipe_materials.append({
+                                    'material_id': material_id,
+                                    'quantity': quantity
+                                })
+                    else:
+                        st.warning("Không có nguyên liệu nào trong kho. Vui lòng thêm nguyên liệu trước.")
+                    
+                    # Calculate total cost and suggested price
+                    total_cost = total_material_cost + production_fee + other_fee + depreciation_fee
+
+                    # Calculate suggested price with a markup percentage
+                    markup_percentage = 66.66
+                    markup_multiplier = 1 + (markup_percentage / 100)
+                    suggested_price = total_cost * markup_multiplier
+                    
+                    # Display cost breakdown and suggested price
+                    st.write("### Chi phí và Giá đề xuất")
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        st.write(f"Chi phí nguyên liệu: **{total_material_cost:,.0f} VND**")
+                        st.write(f"Chi phí nhân công: **{production_fee:,.0f} VND**")
+                        st.write(f"Chi phí khác: **{other_fee:,.0f} VND**")
+                        st.write(f"Chi phí khấu hao tài sản: **{depreciation_fee:,.0f} VND**")
+                        st.write(f"**Tổng chi phí: {total_cost:,.0f} VND**")
+                    with col2:
+                        st.write(f"Tỷ lệ lợi nhuận: **{markup_percentage:.2f}%**")
+                        st.write(f"Giá đề xuất: **{suggested_price:,.0f} VND**")
+                    
+                    # Allow user to use suggested price
+                    use_suggested_price = st.checkbox("Sử dụng giá đề xuất", key="update_use_suggested_price")
+                    
+                    if use_suggested_price:
+                        new_price = int(suggested_price)
+                        st.write(f"Giá sản phẩm: **{new_price:,.0f} VND**")
+                    
+                    if st.button("Cập nhật Sản phẩm"):
+                        # Update product information
+                        st.session_state.products.at[product_idx, 'name'] = new_product_name
+                        st.session_state.products.at[product_idx, 'price'] = new_price
+                        st.session_state.products.at[product_idx, 'category'] = new_product_category
+                        
+                        # Update unit
+                        if 'unit' in st.session_state.products.columns:
+                            st.session_state.products.at[product_idx, 'unit'] = product_unit if selected_unit_option_product == "Khác" else selected_unit_option_product
+                        else:
+                            # Add unit column if it doesn't exist
+                            st.session_state.products['unit'] = ""
+                            st.session_state.products.at[product_idx, 'unit'] = product_unit if selected_unit_option_product == "Khác" else selected_unit_option_product
+                        
+                        # Update or create product cost information
+                        if 'product_costs' not in st.session_state:
+                            st.session_state.product_costs = pd.DataFrame(columns=[
+                                'product_id', 'material_cost', 'production_fee', 'other_fee', 'Depreciation_fee', 'total_cost', 'price'
+                            ])
+                        
+                        # Check if product already has cost info
+                        cost_exists = False
+                        if not st.session_state.product_costs.empty:
+                            cost_data = st.session_state.product_costs[
+                                st.session_state.product_costs['product_id'] == selected_product_id
+                            ]
+                            if not cost_data.empty:
+                                cost_idx = cost_data.index[0]
+                                cost_exists = True
+                                
+                                # Update existing cost info
+                                st.session_state.product_costs.at[cost_idx, 'material_cost'] = total_material_cost
+                                st.session_state.product_costs.at[cost_idx, 'production_fee'] = production_fee
+                                st.session_state.product_costs.at[cost_idx, 'other_fee'] = other_fee
+                                st.session_state.product_costs.at[cost_idx, 'Depreciation_fee'] = depreciation_fee
+                                st.session_state.product_costs.at[cost_idx, 'total_cost'] = total_cost
+                                st.session_state.product_costs.at[cost_idx, 'price'] = new_price
+                        
+                        # If cost info doesn't exist, create it
+                        if not cost_exists:
+                            new_cost_info = pd.DataFrame({
+                                'product_id': [selected_product_id],
+                                'material_cost': [total_material_cost],
+                                'production_fee': [production_fee],
+                                'other_fee': [other_fee],
+                                'Depreciation_fee': [depreciation_fee],
+                                'total_cost': [total_cost],
+                                'price': [new_price]
+                            })
+                            
+                            st.session_state.product_costs = pd.concat([st.session_state.product_costs, new_cost_info], ignore_index=True)
+                        
+                        # Update recipe information
+                        # First, remove all existing recipe entries for this product
+                        st.session_state.recipes = st.session_state.recipes[
+                            st.session_state.recipes['product_id'] != selected_product_id
+                        ]
+                        
+                        # Then add the new recipe entries
+                        if recipe_materials:
+                            recipe_rows = []
+                            for material in recipe_materials:
+                                recipe_rows.append({
+                                    'product_id': selected_product_id,
+                                    'material_id': material['material_id'],
+                                    'quantity': material['quantity']
+                                })
+                            
+                            new_recipes = pd.DataFrame(recipe_rows)
+                            st.session_state.recipes = pd.concat([st.session_state.recipes, new_recipes], ignore_index=True)
+                        
+                        # Save data
                         save_dataframe(st.session_state.products, "products.csv")
+                        save_dataframe(st.session_state.recipes, "recipes.csv")
+                        save_dataframe(st.session_state.product_costs, "product_costs.csv")
+                        
+                        st.success(f"Sản phẩm {selected_product_id} đã được cập nhật thành công!")
         else:
             st.info("Chưa có dữ liệu sản phẩm để cập nhật.")
 
@@ -3173,14 +3686,16 @@ elif tab_selection == "Quản lý Hóa đơn":
             st.subheader("Tất cả Hóa đơn")
             
             # Create a display version of the invoices with formatted values and status
+            # Get the most up-to-date invoice status data before displaying
             invoices_with_status = st.session_state.invoices.merge(
-                st.session_state.invoice_status[['invoice_id', 'is_completed']],
+                st.session_state.invoice_status[['invoice_id', 'is_completed', 'payment_status']],
                 on='invoice_id',
                 how='left'
             )
             
             # Fill NaN values from merge
             invoices_with_status['is_completed'] = invoices_with_status['is_completed'].fillna(False)
+            invoices_with_status['payment_status'] = invoices_with_status['payment_status'].fillna("Chưa thanh toán")
             
             # Format for display
             display_invoices = pd.DataFrame({
@@ -3192,7 +3707,7 @@ elif tab_selection == "Quản lý Hóa đơn":
                 'Trạng thái': invoices_with_status['is_completed'].apply(
                     lambda x: "✅ Hoàn thành" if x else "⏳ Chưa hoàn thành"
                 ),
-                'Trạng thái TT': invoices_with_status['payment_status'] if 'payment_status' in invoices_with_status.columns else "Chưa thanh toán"
+                'Trạng thái TT': invoices_with_status['payment_status']
             })
             
             # Show the invoices sorted by date
@@ -3246,7 +3761,8 @@ elif tab_selection == "Quản lý Hóa đơn":
                 invoice_options = []
                 for _, invoice in filtered_invoices.iterrows():
                     status_emoji = "✅" if invoice['is_completed'] else "⏳"
-                    invoice_options.append(f"{invoice['invoice_id']} - {invoice['customer_name']} ({status_emoji})")
+                    payment_status_text = f" | {invoice['payment_status']}"
+                    invoice_options.append(f"{invoice['invoice_id']} - {invoice['customer_name']} ({status_emoji}{payment_status_text})")
                 
                 selected_invoice = st.selectbox(
                     "Chọn Hóa đơn để Xem",
@@ -3343,10 +3859,11 @@ elif tab_selection == "Quản lý Hóa đơn":
                                 st.session_state.invoice_status['payment_status'] = "Chưa thanh toán"
                             st.session_state.invoice_status.at[status_idx, 'payment_status'] = new_payment_status
 
-                            st.success(f"Trạng thái hóa đơn {selected_invoice_id} đã được cập nhật!")
                             # Save invoice status data
                             save_dataframe(st.session_state.invoice_status, "invoice_status.csv")
-                            st.rerun()  # Changed from experimental_rerun to rerun
+                            st.success(f"Trạng thái hóa đơn {selected_invoice_id} đã được cập nhật!")
+                            time.sleep(0.5)  # Brief pause to ensure data is saved
+                            st.rerun()  # Force page rerun to refresh all components with new data
                         
                         # Order items
                         st.write("### Các Mặt hàng")
@@ -3433,7 +3950,8 @@ elif tab_selection == "Quản lý Hóa đơn":
                     'invoice_id': [invoice_id],
                     'is_completed': [False],
                     'completion_date': [''],
-                    'notes': ['Hóa đơn mẫu để kiểm thử']
+                    'notes': ['Hóa đơn mẫu để kiểm thử'],
+                    'payment_status': ['Chưa thanh toán']
                 })
                 
                 # Update session state
@@ -3442,14 +3960,15 @@ elif tab_selection == "Quản lý Hóa đơn":
                 st.session_state.invoices = pd.concat([st.session_state.invoices, demo_invoice], ignore_index=True)
                 st.session_state.invoice_status = pd.concat([st.session_state.invoice_status, demo_status], ignore_index=True)
                 
-                st.success("Đã tạo hóa đơn mẫu thành công!")
                 # Save orders, order items, invoices, and invoice status data
                 save_dataframe(st.session_state.orders, "orders.csv")
                 save_dataframe(st.session_state.order_items, "order_items.csv")
                 save_dataframe(st.session_state.invoices, "invoices.csv")
                 save_dataframe(st.session_state.invoice_status, "invoice_status.csv")
-
-                st.rerun()  # Changed from experimental_rerun to rerun
+                
+                st.success("Đã tạo hóa đơn mẫu thành công!")
+                time.sleep(0.5)  # Brief pause to ensure data is saved
+                st.rerun()  # Force page rerun
     
     with invoice_tab2:
         st.subheader("Hóa đơn Chưa hoàn thành")
