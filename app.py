@@ -2295,12 +2295,28 @@ elif tab_selection == "Kho Nguyên liệu":
             # Create a list of options for the selectbox
             material_options = []
             for _, material in st.session_state.materials.iterrows():
+                # Get initial quantity - use price_per_unit * quantity as a rough estimate of initial value
+                initial_quantity = material.get('initial_quantity', None)
+                
+                # If initial_quantity is not available, estimate it from used_quantity
+                if initial_quantity is None or initial_quantity <= 0:
+                    initial_quantity = material['quantity'] + material.get('used_quantity', 0)
+                        
+                # Calculate exact percentage remaining
+                percentage_remaining = (material['quantity'] / initial_quantity * 100) if initial_quantity > 0 else 100
+                
+                # Check if it's a new product (nothing used yet)
+                is_new_product = material.get('used_quantity', 0) == 0 and material['quantity'] > 0
+                
+                # Determine status text based on levels (matching the Xem Kho tab)
                 status = ""
                 if material['quantity'] <= 0:
                     status = " [HẾT HÀNG]"
-                elif material['quantity'] <= 5:
-                    status = " [SẮP HẾT]"
-                    
+                elif percentage_remaining <= 10.0 and not is_new_product:
+                    status = f" [SẮP HẾT - {percentage_remaining:.1f}%]"
+                elif percentage_remaining <= 30.0 and not is_new_product:
+                    status = " [TRUNG BÌNH]"
+                        
                 material_options.append(f"{material['material_id']} - {material['name']}{status}")
             
             selected_material = st.selectbox(
@@ -2321,32 +2337,95 @@ elif tab_selection == "Kho Nguyên liệu":
                     current_quantity = st.session_state.materials.at[material_idx, 'quantity']
                     current_price = st.session_state.materials.at[material_idx, 'price_per_unit']
                     
-                    # Show warning if out of stock
+                    # Get initial quantity for percentage calculation
+                    initial_quantity = material_data.get('initial_quantity', None).iloc[0] if 'initial_quantity' in material_data.columns else None
+                    
+                    # If initial_quantity is not available, estimate it from used_quantity
+                    if initial_quantity is None or initial_quantity <= 0:
+                        initial_quantity = current_quantity + material_data['used_quantity'].iloc[0]
+                    
+                    # Calculate percentage remaining
+                    percentage_remaining = (current_quantity / initial_quantity * 100) if initial_quantity > 0 else 100
+                    is_new_product = material_data['used_quantity'].iloc[0] == 0 and current_quantity > 0
+                    
+                    # Show warning if out of stock or low stock (consistent with tab 1)
                     if current_quantity <= 0:
                         st.error(f"⚠️ Nguyên liệu này đã HẾT HÀNG! Số lượng hiện tại: {current_quantity}")
-                    elif current_quantity <= 5:
-                        st.warning(f"⚠️ Nguyên liệu này sắp hết hàng! Số lượng hiện tại: {current_quantity}")
+                    elif percentage_remaining <= 10.0 and not is_new_product:
+                        st.warning(f"⚠️ Nguyên liệu này sắp hết hàng! Số lượng hiện tại: {current_quantity} ({percentage_remaining:.1f}% còn lại)")
+                    elif percentage_remaining <= 30.0 and not is_new_product:
+                        st.info(f"Nguyên liệu này còn hàng ở mức trung bình. Số lượng hiện tại: {current_quantity} ({percentage_remaining:.1f}% còn lại)")
+                    else:
+                        st.success(f"Nguyên liệu này còn đủ hàng. Số lượng hiện tại: {current_quantity}")
                     
+                    # Create a two-column layout for update form
                     col1, col2 = st.columns(2)
+                    
                     with col1:
                         # Allow negative values for quantity to show the actual negative balance
                         new_quantity = st.number_input("Số lượng Mới", value=float(current_quantity), step=0.1)
+                        
                     with col2:
                         new_price = st.number_input("Giá Mới trên một Đơn vị", min_value=1, value=int(current_price), step=1000)
                     
+                    # Get current supplier (if exists in data)
+                    current_supplier = ""
+                    
+                    # Check if there's supplier info in material_costs
+                    if 'material_costs' in st.session_state and not st.session_state.material_costs.empty:
+                        # Get the most recent entry for this material
+                        supplier_data = st.session_state.material_costs[
+                            st.session_state.material_costs['material_id'] == selected_material_id
+                        ].sort_values('date', ascending=False)
+                        
+                        if not supplier_data.empty and 'supplier' in supplier_data.columns:
+                            current_supplier = supplier_data['supplier'].iloc[0]
+                    
+                    # Add supplier field
+                    new_supplier = st.text_input("Nhà cung cấp", value=current_supplier)
+                    
                     if st.button("Cập nhật Nguyên liệu"):
-                        # Update the material
+                        # Update the material quantity and price
                         st.session_state.materials.at[material_idx, 'quantity'] = new_quantity
                         st.session_state.materials.at[material_idx, 'price_per_unit'] = new_price
                         
-                        # Show status messages
+                        # If supplier was updated and not empty, record it in material_costs
+                        if new_supplier and new_supplier != current_supplier:
+                            if 'material_costs' not in st.session_state:
+                                st.session_state.material_costs = pd.DataFrame(columns=[
+                                    'date', 'material_id', 'quantity', 'total_cost', 'supplier'
+                                ])
+                            
+                            # Record a supplier update entry with zero quantity/cost
+                            supplier_update = pd.DataFrame({
+                                'date': [date.today().strftime("%Y-%m-%d")],
+                                'material_id': [selected_material_id],
+                                'quantity': [0],  # No quantity change
+                                'total_cost': [0],  # No cost change
+                                'supplier': [new_supplier]  # Updated supplier
+                            })
+                            
+                            st.session_state.material_costs = pd.concat([
+                                st.session_state.material_costs, supplier_update
+                            ], ignore_index=True)
+                            
+                            # Save material costs data
+                            save_dataframe(st.session_state.material_costs, "material_costs.csv")
+                        
+                        # Show status messages based on new quantity
+                        initial_quantity = new_quantity + material_data['used_quantity'].iloc[0]
+                        percentage_remaining = (new_quantity / initial_quantity * 100) if initial_quantity > 0 else 100
+                        
                         if new_quantity <= 0:
                             st.error(f"Nguyên liệu {selected_material_id} đã được cập nhật nhưng hiện đã HẾT HÀNG!")
-                        elif new_quantity <= 5:
-                            st.warning(f"Nguyên liệu {selected_material_id} đã được cập nhật nhưng sắp hết hàng!")
+                        elif percentage_remaining <= 10.0 and not is_new_product:
+                            st.warning(f"Nguyên liệu {selected_material_id} đã được cập nhật nhưng sắp hết hàng! ({percentage_remaining:.1f}% còn lại)")
+                        elif percentage_remaining <= 30.0 and not is_new_product:
+                            st.info(f"Nguyên liệu {selected_material_id} đã được cập nhật! Còn hàng ở mức trung bình ({percentage_remaining:.1f}% còn lại)")
                         else:
                             st.success(f"Nguyên liệu {selected_material_id} đã được cập nhật thành công!")
-                        #Save materials data
+                        
+                        # Save materials data
                         save_dataframe(st.session_state.materials, "materials.csv")        
         else:
             st.info("Chưa có dữ liệu nguyên liệu để cập nhật.")
