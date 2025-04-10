@@ -2499,6 +2499,52 @@ elif tab_selection == "Theo dõi Doanh thu":
         else:
             st.info("Chưa có dữ liệu chi phí marketing. Vui lòng thêm chi phí marketing để theo dõi.")
 
+        # Thêm chức năng xóa chi phí marketing
+        st.subheader("Xóa Chi phí Marketing")
+
+        # Chọn ID dòng cần xóa
+        if len(filtered_marketing_costs) > 0:
+            delete_marketing_options = []
+            for idx, row in filtered_marketing_costs.iterrows():
+                delete_marketing_options.append(f"ID: {idx} - {row['date']} - {row['campaign_name']} - {row['platform']} - {row['amount']:,.0f} VND")
+            
+            selected_marketing_to_delete = st.selectbox(
+                "Chọn chi phí marketing để xóa",
+                options=delete_marketing_options,
+                key="delete_marketing_select"
+            )
+            
+            if selected_marketing_to_delete:
+                # Lấy ID từ chuỗi đã chọn
+                marketing_id = int(selected_marketing_to_delete.split(" - ")[0].replace("ID: ", ""))
+                
+                # Hiển thị thông tin chi tiết về dòng sẽ xóa
+                marketing_to_delete = marketing_costs_df.loc[marketing_id]
+                st.write(f"**Chi tiết chi phí sẽ xóa:**")
+                st.write(f"- Ngày: {marketing_to_delete['date']}")
+                st.write(f"- Chiến dịch: {marketing_to_delete['campaign_name']}")
+                st.write(f"- Nền tảng: {marketing_to_delete['platform']}")
+                st.write(f"- Chi phí: {marketing_to_delete['amount']:,.0f} VND")
+                
+                # Nút xác nhận xóa
+                confirm_delete_marketing = st.checkbox("Tôi xác nhận muốn xóa chi phí này", key="confirm_delete_marketing")
+                
+                if st.button("Xóa Chi phí Marketing", key="delete_marketing_button"):
+                    if confirm_delete_marketing:
+                        # Xóa dòng chi phí được chọn
+                        st.session_state.marketing_costs = st.session_state.marketing_costs.drop(marketing_id)
+                        
+                        # Reset index sau khi xóa
+                        st.session_state.marketing_costs = st.session_state.marketing_costs.reset_index(drop=True)
+                        
+                        # Lưu lại dữ liệu
+                        save_dataframe(st.session_state.marketing_costs, "marketing_costs.csv")
+                        
+                        st.success(f"Đã xóa chi phí marketing thành công!")
+                        st.rerun()
+                    else:
+                        st.error("Vui lòng xác nhận việc xóa bằng cách đánh dấu vào ô xác nhận.")
+
 # Materials Inventory Tab - Updated with Out-of-Stock Notifications
 elif tab_selection == "Kho Nguyên liệu":
     st.header("Kho Nguyên liệu")
