@@ -357,6 +357,10 @@ def save_all_data():
 
 # Function to update material quantities after an order
 def update_materials_after_order(order_id):
+    """
+    Cập nhật số lượng nguyên liệu sau khi tạo đơn hàng
+    Không cho phép số lượng nguyên liệu âm
+    """
     # Get order items
     order_items_df = st.session_state.order_items[st.session_state.order_items['order_id'] == order_id]
     
@@ -375,10 +379,20 @@ def update_materials_after_order(order_id):
             
             # Update material quantity
             material_idx = st.session_state.materials[st.session_state.materials['material_id'] == material_id].index[0]
+            current_quantity = st.session_state.materials.at[material_idx, 'quantity']
+            
+            # Đảm bảo số lượng không âm
+            if current_quantity < material_quantity_needed:
+                # Không nên xảy ra vì đã kiểm tra trước khi đến đây, nhưng để chắc chắn
+                st.error(f"Lỗi: Không đủ nguyên liệu {material_id} để thực hiện đơn hàng!")
+                return False
+            
             st.session_state.materials.at[material_idx, 'quantity'] -= material_quantity_needed
             
             # Update used quantity
             st.session_state.materials.at[material_idx, 'used_quantity'] += material_quantity_needed
+    
+    return True
 
 def calculate_cost_of_goods(order_id):
     """
@@ -440,6 +454,55 @@ def calculate_cost_of_goods(order_id):
         'other_cost': total_other_cost,
         'total_cost': total_material_cost + total_other_cost
     }
+
+def check_sufficient_materials(selected_products, quantities):
+    """
+    Kiểm tra xem có đủ nguyên liệu để hoàn thành đơn hàng hay không
+    Trả về True nếu đủ, False nếu không đủ, cùng với danh sách nguyên liệu thiếu
+    """
+    # Tính toán tổng nguyên liệu cần thiết cho đơn hàng
+    required_materials = {}
+    
+    for product, quantity in zip(selected_products, quantities):
+        product_id = product['product_id']
+        # Lấy công thức của sản phẩm
+        product_recipe = st.session_state.recipes[st.session_state.recipes['product_id'] == product_id]
+        
+        # Cho mỗi nguyên liệu trong công thức
+        for _, recipe_item in product_recipe.iterrows():
+            material_id = recipe_item['material_id']
+            material_quantity_needed = recipe_item['quantity'] * quantity
+            
+            # Cộng dồn vào tổng nguyên liệu cần thiết
+            if material_id in required_materials:
+                required_materials[material_id] += material_quantity_needed
+            else:
+                required_materials[material_id] = material_quantity_needed
+    
+    # Kiểm tra xem có đủ nguyên liệu trong kho không
+    insufficient_materials = []
+    
+    for material_id, required_quantity in required_materials.items():
+        # Lấy thông tin nguyên liệu
+        material_data = st.session_state.materials[st.session_state.materials['material_id'] == material_id]
+        
+        if not material_data.empty:
+            available_quantity = material_data['quantity'].iloc[0]
+            material_name = material_data['name'].iloc[0]
+            material_unit = material_data['unit'].iloc[0]
+            
+            # So sánh số lượng cần với số lượng hiện có
+            if required_quantity > available_quantity:
+                insufficient_materials.append({
+                    'id': material_id,
+                    'name': material_name,
+                    'unit': material_unit,
+                    'required': required_quantity,
+                    'available': available_quantity,
+                    'shortage': required_quantity - available_quantity
+                })
+    
+    return len(insufficient_materials) == 0, insufficient_materials
 
 # Function to update income records after completing an order
 def update_income(order_id):
@@ -1194,72 +1257,102 @@ if tab_selection == "Quản lý Đơn hàng":
             elif len(selected_products) == 0:
                 st.error("Vui lòng chọn ít nhất một sản phẩm")
             else:
-                # Generate order ID
-                order_id = f"ORD-{uuid.uuid4().hex[:8].upper()}"
+                # Kiểm tra xem có đủ nguyên liệu không
+                sufficient, insufficient_materials = check_sufficient_materials(selected_products, quantities)
                 
-                # Create order
-                # Thêm thông tin giảm giá vào DataFrame đơn hàng khi tạo đơn hàng mới
-                new_order = pd.DataFrame({
-                    'order_id': [order_id],
-                    'date': [date.today().strftime("%Y-%m-%d")],
-                    'customer_name': [customer_name],
-                    'customer_phone': [customer_phone],
-                    'customer_address': [customer_address],
-                    'total_amount': [discounted_product_amount],  # Giá trị sản phẩm sau khi giảm giá
-                    'shipping_fee': [shipping_fee],  # Phí vận chuyển
-                    'discount_code': [discount_code if discount_amount > 0 else ''],  # Lưu mã giảm giá
-                    'discount_amount': [discount_amount],  # Lưu số tiền giảm giá
-                    'status': ['Hoàn thành']
-                })
-                
-                # Create order items
-                new_order_items = []
-                for product, quantity in zip(selected_products, quantities):
-                    new_order_items.append({
-                        'order_id': order_id,
-                        'product_id': product['product_id'],
-                        'quantity': quantity,
-                        'price': product['price'],
-                        'subtotal': product['price'] * quantity
+                if not sufficient:
+                    # Hiển thị thông báo thiếu nguyên liệu
+                    st.error("Không đủ nguyên liệu để thực hiện đơn hàng này!")
+                    
+                    # Hiển thị chi tiết các nguyên liệu thiếu
+                    st.subheader("Nguyên liệu không đủ:")
+                    
+                    for material in insufficient_materials:
+                        st.warning(f"**{material['name']}**: " +
+                                f"Cần {material['required']:.5f} {material['unit']}, " +
+                                f"có sẵn {material['available']:.5f} {material['unit']}, " +
+                                f"thiếu {material['shortage']:.5f} {material['unit']}")
+                    
+                    # Gợi ý nhập thêm nguyên liệu
+                    st.info("Vui lòng nhập thêm nguyên liệu vào kho trước khi tạo đơn hàng này.")
+                    
+                    # Tạo nút điều hướng đến tab nhập nguyên liệu
+                    if st.button("Đi đến Nhập Nguyên liệu"):
+                        st.session_state.sidebar_selection = "Kho Nguyên liệu"
+                        st.rerun()
+                else:
+                    # Generate order ID
+                    order_id = f"ORD-{uuid.uuid4().hex[:8].upper()}"
+                    
+                    # Create order
+                    # Thêm thông tin giảm giá vào DataFrame đơn hàng khi tạo đơn hàng mới
+                    new_order = pd.DataFrame({
+                        'order_id': [order_id],
+                        'date': [date.today().strftime("%Y-%m-%d")],
+                        'customer_name': [customer_name],
+                        'customer_phone': [customer_phone],
+                        'customer_address': [customer_address],
+                        'total_amount': [discounted_product_amount],  # Giá trị sản phẩm sau khi giảm giá
+                        'shipping_fee': [shipping_fee],  # Phí vận chuyển
+                        'discount_code': [discount_code if discount_amount > 0 else ''],  # Lưu mã giảm giá
+                        'discount_amount': [discount_amount],  # Lưu số tiền giảm giá
+                        'status': ['Hoàn thành']
                     })
-                
-                new_order_items_df = pd.DataFrame(new_order_items)
-                
-                # Update session state
-                st.session_state.orders = pd.concat([st.session_state.orders, new_order], ignore_index=True)
-                st.session_state.order_items = pd.concat([st.session_state.order_items, new_order_items_df], ignore_index=True)
-                
-                # Update materials inventory
-                update_materials_after_order(order_id)
-                
-                # Update income records
-                update_income(order_id)
-                
-                # Create invoice
-                invoice_id = f"INV-{uuid.uuid4().hex[:8].upper()}"
-                new_invoice = pd.DataFrame({
-                    'invoice_id': [invoice_id],
-                    'order_id': [order_id],
-                    'date': [date.today().strftime("%Y-%m-%d")],
-                    'customer_name': [customer_name],
-                    'total_amount': [total_amount],  # Use grand total (products + shipping)
-                    'payment_method': ['Tiền mặt']  # Default payment method
-                })
-                
-                st.session_state.invoices = pd.concat([st.session_state.invoices, new_invoice], ignore_index=True)
-                
-                st.success(f"Đơn hàng {order_id} đã được tạo thành công!")
-                
-                # Generate invoice download link
-                pdf_data = generate_invoice_content(invoice_id, order_id, as_pdf=True)
-                st.markdown(download_link(pdf_data, f"Hoadon_{invoice_id}.pdf", "Tải Hóa đơn (PDF)", is_pdf=True), unsafe_allow_html=True)
+                    
+                    # Create order items
+                    new_order_items = []
+                    for product, quantity in zip(selected_products, quantities):
+                        new_order_items.append({
+                            'order_id': order_id,
+                            'product_id': product['product_id'],
+                            'quantity': quantity,
+                            'price': product['price'],
+                            'subtotal': product['price'] * quantity
+                        })
+                    
+                    new_order_items_df = pd.DataFrame(new_order_items)
+                    
+                    # Update session state
+                    st.session_state.orders = pd.concat([st.session_state.orders, new_order], ignore_index=True)
+                    st.session_state.order_items = pd.concat([st.session_state.order_items, new_order_items_df], ignore_index=True)
+                    
+                    # Update materials inventory - đảm bảo đủ nguyên liệu
+                    update_success = update_materials_after_order(order_id)
+                    
+                    if update_success:
+                        # Update income records
+                        update_income(order_id)
+                        
+                        # Create invoice
+                        invoice_id = f"INV-{uuid.uuid4().hex[:8].upper()}"
+                        new_invoice = pd.DataFrame({
+                            'invoice_id': [invoice_id],
+                            'order_id': [order_id],
+                            'date': [date.today().strftime("%Y-%m-%d")],
+                            'customer_name': [customer_name],
+                            'total_amount': [total_amount],  # Use grand total (products + shipping)
+                            'payment_method': ['Tiền mặt']  # Default payment method
+                        })
+                        
+                        st.session_state.invoices = pd.concat([st.session_state.invoices, new_invoice], ignore_index=True)
+                        
+                        st.success(f"Đơn hàng {order_id} đã được tạo thành công!")
+                        
+                        # Generate invoice download link
+                        pdf_data = generate_invoice_content(invoice_id, order_id, as_pdf=True)
+                        st.markdown(download_link(pdf_data, f"Hoadon_{invoice_id}.pdf", "Tải Hóa đơn (PDF)", is_pdf=True), unsafe_allow_html=True)
 
-                 # Save data after creating order
-                save_dataframe(st.session_state.orders, "orders.csv")
-                save_dataframe(st.session_state.order_items, "order_items.csv")
-                save_dataframe(st.session_state.invoices, "invoices.csv")
-                save_dataframe(st.session_state.materials, "materials.csv")
-                save_dataframe(st.session_state.income, "income.csv")
+                        # Save data after creating order
+                        save_dataframe(st.session_state.orders, "orders.csv")
+                        save_dataframe(st.session_state.order_items, "order_items.csv")
+                        save_dataframe(st.session_state.invoices, "invoices.csv")
+                        save_dataframe(st.session_state.materials, "materials.csv")
+                        save_dataframe(st.session_state.income, "income.csv")
+                    else:
+                        # Xóa đơn hàng nếu việc cập nhật nguyên liệu thất bại
+                        st.session_state.orders = st.session_state.orders[st.session_state.orders['order_id'] != order_id]
+                        st.session_state.order_items = st.session_state.order_items[st.session_state.order_items['order_id'] != order_id]
+                        st.error("Không thể tạo đơn hàng do lỗi khi cập nhật nguyên liệu!")
     
     with order_tab2:
         st.subheader("Lịch sử Đơn hàng")
