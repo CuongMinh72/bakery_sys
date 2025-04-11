@@ -316,13 +316,17 @@ def setup_vietnamese_font():
             regular_path = f"{roboto_base_dir}/Roboto-Regular.ttf"
             bold_path = f"{roboto_base_dir}/Roboto-Bold.ttf"
             
-            # Register the regular font
-            pdfmetrics.registerFont(TTFont('Roboto', regular_path))
-            
-            # Register the bold font
-            pdfmetrics.registerFont(TTFont('Roboto-Bold', bold_path))
-            
-            return 'Roboto'
+            # Check if fonts exist
+            if os.path.exists(regular_path) and os.path.exists(bold_path):
+                # Register the regular font
+                pdfmetrics.registerFont(TTFont('Roboto', regular_path))
+                # Register the bold font
+                pdfmetrics.registerFont(TTFont('Roboto-Bold', bold_path))
+                return 'Roboto'
+            else:
+                # Fall back to Helvetica if fonts don't exist
+                return 'Helvetica'
+                
         except Exception as e:
             print(f"Font error: {e}")
             # Fall back to Helvetica if there's any issue

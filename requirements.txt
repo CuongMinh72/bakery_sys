@@ -1,5 +1,5 @@
-streamlit
-pillow
+streamlit>=1.44.1
+pillow>=10.0.0
 pandas
 reportlab
-pymongo
+pymongo>=4.12.0
