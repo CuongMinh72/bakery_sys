@@ -1744,6 +1744,7 @@ elif tab_selection == "Theo dõi Doanh thu":
             income_df = st.session_state.income.copy()
             material_costs_df = st.session_state.material_costs.copy() if 'material_costs' in st.session_state else pd.DataFrame()
             labor_costs_df = st.session_state.labor_costs.copy() if 'labor_costs' in st.session_state else pd.DataFrame()
+            marketing_costs_df = st.session_state.marketing_costs.copy() if 'marketing_costs' in st.session_state else pd.DataFrame()
             
             # Date range selection
             try:
@@ -1790,6 +1791,14 @@ elif tab_selection == "Theo dõi Doanh thu":
                             (labor_costs_df['date'] <= end_date_str)
                         ]
                     
+                    # Filter marketing costs data (chi phí marketing) - THÊM MỚI
+                    filtered_marketing = pd.DataFrame()
+                    if not marketing_costs_df.empty:
+                        filtered_marketing = marketing_costs_df[
+                            (marketing_costs_df['date'] >= start_date_str) & 
+                            (marketing_costs_df['date'] <= end_date_str)
+                        ]
+                    
                     # Group data by date
                     if not filtered_income.empty:
                         # Group income data by date
@@ -1804,6 +1813,8 @@ elif tab_selection == "Theo dõi Doanh thu":
                             income_agg_dict['other_costs'] = 'sum'
                         if 'depreciation_costs' in filtered_income.columns:
                             income_agg_dict['depreciation_costs'] = 'sum'
+                        if 'discount_costs' in filtered_income.columns:  # THÊM MỚI
+                            income_agg_dict['discount_costs'] = 'sum'
                             
                         income_by_date = filtered_income.groupby('date').agg(income_agg_dict).reset_index()
                         
@@ -1823,6 +1834,14 @@ elif tab_selection == "Theo dõi Doanh thu":
                             }).reset_index()
                             labor_by_date.rename(columns={'total_cost': 'labor_cost'}, inplace=True)
                         
+                        # Calculate marketing costs by date (chi phí marketing) - THÊM MỚI
+                        marketing_by_date = pd.DataFrame()
+                        if not filtered_marketing.empty:
+                            marketing_by_date = filtered_marketing.groupby('date').agg({
+                                'amount': 'sum'
+                            }).reset_index()
+                            marketing_by_date.rename(columns={'amount': 'marketing_cost'}, inplace=True)
+                        
                         # Merge the dataframes
                         chart_data = income_by_date.copy()
                         
@@ -1840,19 +1859,30 @@ elif tab_selection == "Theo dõi Doanh thu":
                         else:
                             chart_data['labor_cost'] = 0
                         
+                        # Thêm chi phí marketing - THÊM MỚI
+                        if not marketing_by_date.empty:
+                            chart_data = chart_data.merge(marketing_by_date, on='date', how='left')
+                            chart_data['marketing_cost'] = chart_data['marketing_cost'].fillna(0)
+                        else:
+                            chart_data['marketing_cost'] = 0
+                        
                         # Đảm bảo có các cột chi phí khác và khấu hao
                         if 'other_costs' not in chart_data.columns:
                             chart_data['other_costs'] = 0
                         if 'depreciation_costs' not in chart_data.columns:
                             chart_data['depreciation_costs'] = 0
+                        if 'discount_costs' not in chart_data.columns:  # THÊM MỚI
+                            chart_data['discount_costs'] = 0
                         
-                        # Tính tổng chi phí và lợi nhuận ròng
+                        # Tính tổng chi phí và lợi nhuận ròng - UPDATED
                         chart_data['total_cost'] = (
                             chart_data['cost_of_goods'] +
                             chart_data['material_cost'] +
                             chart_data['labor_cost'] +
                             chart_data['other_costs'] +
-                            chart_data['depreciation_costs']
+                            chart_data['depreciation_costs'] +
+                            chart_data['discount_costs'] +  # THÊM MỚI
+                            chart_data['marketing_cost']    # THÊM MỚI
                         )
                         
                         chart_data['net_profit'] = chart_data['total_sales'] - chart_data['total_cost']
@@ -1866,23 +1896,36 @@ elif tab_selection == "Theo dõi Doanh thu":
                         chart_data = chart_data.sort_values('date')
                         
                         # Display summary metrics
-                        col1, col2, col3 = st.columns(3)
+                        # Set the custom CSS for metrics
+                        st.markdown("""
+                        <style>
+                            .stMetric .css-1wivap2 {
+                                font-size: 1.0rem !important;
+                                overflow: visible !important;
+                                text-overflow: clip !important;
+                                white-space: normal !important;
+                            }
+                        </style>
+                        """, unsafe_allow_html=True)
                         
-                        with col1:
+                        # First row of metrics
+                        row1_col1, row1_col2, row1_col3 = st.columns(3)
+                        
+                        with row1_col1:
                             st.metric(
                                 "Tổng Doanh thu", 
                                 f"{chart_data['total_sales'].sum():,.0f} VND",
                                 delta=None
                             )
                         
-                        with col2:
+                        with row1_col2:
                             st.metric(
                                 "Tổng Chi phí", 
                                 f"{chart_data['total_cost'].sum():,.0f} VND",
                                 delta=None
                             )
                         
-                        with col3:
+                        with row1_col3:
                             st.metric(
                                 "Lợi nhuận Ròng", 
                                 f"{chart_data['net_profit'].sum():,.0f} VND",
@@ -1891,40 +1934,62 @@ elif tab_selection == "Theo dõi Doanh thu":
                         
                         # Hiển thị chi tiết về chi phí
                         st.subheader("Chi tiết Chi phí")
-                        col1, col2, col3, col4, col5 = st.columns(5)
                         
-                        with col1:
+                        # Row 1 of detailed costs
+                        row2_col1, row2_col2, row2_col3 = st.columns(3)
+                        
+                        with row2_col1:
                             st.metric(
                                 "Chi phí Nguyên liệu đã sử dụng", 
                                 f"{chart_data['cost_of_goods'].sum():,.0f} VND",
                                 delta=None
                             )
                         
-                        with col2:
+                        with row2_col2:
                             st.metric(
                                 "Chi phí Nhập hàng", 
                                 f"{chart_data['material_cost'].sum():,.0f} VND",
                                 delta=None
                             )
                         
-                        with col3:
+                        with row2_col3:
                             st.metric(
                                 "Chi phí Nhân công", 
                                 f"{chart_data['labor_cost'].sum():,.0f} VND",
                                 delta=None
                             )
                         
-                        with col4:
+                        # Row 2 of detailed costs
+                        row3_col1, row3_col2, row3_col3 = st.columns(3)
+                        
+                        with row3_col1:
                             st.metric(
                                 "Chi phí Khác", 
                                 f"{chart_data['other_costs'].sum():,.0f} VND",
                                 delta=None
                             )
                         
-                        with col5:
+                        with row3_col2:
                             st.metric(
                                 "Chi phí Khấu hao", 
                                 f"{chart_data['depreciation_costs'].sum():,.0f} VND",
+                                delta=None
+                            )
+                        
+                        with row3_col3:
+                            st.metric(
+                                "Chi phí Giảm giá", 
+                                f"{chart_data['discount_costs'].sum():,.0f} VND",
+                                delta=None
+                            )
+                        
+                        # Row 3 for marketing costs
+                        row4_col1, row4_col2, row4_col3 = st.columns(3)
+                        
+                        with row4_col1:
+                            st.metric(
+                                "Chi phí Marketing", 
+                                f"{chart_data['marketing_cost'].sum():,.0f} VND",
                                 delta=None
                             )
                         
@@ -1949,6 +2014,8 @@ elif tab_selection == "Theo dõi Doanh thu":
                                 "Chi phí Nhân công", 
                                 "Chi phí Khác",
                                 "Chi phí Khấu hao",
+                                "Chi phí Giảm giá",  # THÊM MỚI
+                                "Chi phí Marketing",  # THÊM MỚI
                                 "Tổng Chi phí", 
                                 "Lợi nhuận Ròng"
                             ],
@@ -1964,6 +2031,8 @@ elif tab_selection == "Theo dõi Doanh thu":
                             "Chi phí Nhân công": "labor_cost",
                             "Chi phí Khác": "other_costs",
                             "Chi phí Khấu hao": "depreciation_costs",
+                            "Chi phí Giảm giá": "discount_costs",  # THÊM MỚI
+                            "Chi phí Marketing": "marketing_cost",  # THÊM MỚI
                             "Tổng Chi phí": "total_cost",
                             "Lợi nhuận Ròng": "net_profit"
                         }
@@ -1999,6 +2068,8 @@ elif tab_selection == "Theo dõi Doanh thu":
                                 'Chi phí Nhân công': f"{row['labor_cost']:,.0f} VND",
                                 'Chi phí Khác': f"{row['other_costs']:,.0f} VND",
                                 'Chi phí Khấu hao': f"{row['depreciation_costs']:,.0f} VND",
+                                'Chi phí Giảm giá': f"{row['discount_costs']:,.0f} VND",  # THÊM MỚI
+                                'Chi phí Marketing': f"{row['marketing_cost']:,.0f} VND",  # THÊM MỚI
                                 'Tổng Chi phí': f"{row['total_cost']:,.0f} VND",
                                 'Lợi nhuận Ròng': f"{row['net_profit']:,.0f} VND"
                             })
