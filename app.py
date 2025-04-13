@@ -1417,9 +1417,8 @@ elif tab_selection == "Theo dõi Doanh thu":
             'date', 'campaign_name', 'description', 'platform', 'amount', 'notes'
         ])
     
-    income_tab1, income_tab2, income_tab3, income_tab4, income_tab5 = st.tabs([
-            "Báo cáo Tổng quan", "Bảng Doanh thu & Chi phí", 
-            "Chi phí Nguyên liệu", "Chi phí Nhân công", "Chi phí Marketing"
+    income_tab1, income_tab2, income_tab3, income_tab4 = st.tabs([
+            "Báo cáo Tổng quan", "Chi phí Nguyên liệu", "Chi phí Nhân công", "Chi phí Marketing"
         ])    
     # Helper function to create monthly summary
     # Cập nhật hàm create_monthly_summary để phản ánh đúng cấu trúc chi phí mới
@@ -1511,11 +1510,14 @@ elif tab_selection == "Theo dõi Doanh thu":
         
         return pd.DataFrame(results)
     
-    # Cập nhật hiển thị báo cáo doanh thu theo yêu cầu
+    # Cập nhật hiển thị báo cáo doanh thu với tất cả các tính năng trong một tab
     with income_tab1:
         if len(st.session_state.income) > 0:
             # Sort by date
             income_df = st.session_state.income.sort_values('date', ascending=False)
+            material_costs_df = st.session_state.material_costs.copy() if 'material_costs' in st.session_state else pd.DataFrame()
+            labor_costs_df = st.session_state.labor_costs.copy() if 'labor_costs' in st.session_state else pd.DataFrame()
+            marketing_costs_df = st.session_state.marketing_costs.copy() if 'marketing_costs' in st.session_state else pd.DataFrame()
             
             # Date filter - Handle date range safely
             try:
@@ -1548,13 +1550,14 @@ elif tab_selection == "Theo dõi Doanh thu":
                 if default_start > default_end:
                     default_start = default_end
                 
-                # Create date input with valid defaults
+                # Create date input with valid defaults and a unique key for rerendering
+                date_range_key = f"income_date_range_{str(datetime.datetime.now().timestamp())}"
                 date_range = st.date_input(
                     "Chọn Khoảng thời gian",
                     [default_start, default_end],
                     min_value=min_date,
                     max_value=max_date,
-                    key="income_date_range"
+                    key=date_range_key
                 )
             except Exception as e:
                 # Fallback if date parsing fails
@@ -1568,6 +1571,10 @@ elif tab_selection == "Theo dõi Doanh thu":
             # Only proceed if we have a valid date range
             if isinstance(date_range, (list, tuple)) and len(date_range) == 2:
                 start_date, end_date = date_range
+                
+                # Store the selected dates in session state
+                st.session_state.income_chart_start_date = start_date
+                st.session_state.income_chart_end_date = end_date
                 
                 # Convert dates to string format for filtering
                 start_date_str = start_date.strftime('%Y-%m-%d')
@@ -1584,20 +1591,19 @@ elif tab_selection == "Theo dõi Doanh thu":
                     st.info(f"Không có dữ liệu doanh thu trong khoảng từ {start_date_str} đến {end_date_str}.")
                 else:
                     # Get material costs for the same period (đổi tên thành chi phí nhập hàng)
-                    material_costs_in_period = 0
                     filtered_costs = pd.DataFrame()
-                    if len(st.session_state.material_costs) > 0:
-                        material_cost_df = st.session_state.material_costs.copy()
-                        filtered_costs = material_cost_df[
-                            (material_cost_df['date'] >= start_date_str) & 
-                            (material_cost_df['date'] <= end_date_str)
+                    material_costs_in_period = 0
+                    if not material_costs_df.empty:
+                        filtered_costs = material_costs_df[
+                            (material_costs_df['date'] >= start_date_str) & 
+                            (material_costs_df['date'] <= end_date_str)
                         ]
-                        material_costs_in_period = filtered_costs['total_cost'].sum()
+                        material_costs_in_period = filtered_costs['total_cost'].sum() if not filtered_costs.empty else 0
                     
                     # Get labor costs for the same period
+                    filtered_labor = pd.DataFrame()
                     labor_costs_in_period = 0
-                    if 'labor_costs' in st.session_state and len(st.session_state.labor_costs) > 0:
-                        labor_costs_df = st.session_state.labor_costs.copy()
+                    if not labor_costs_df.empty:
                         filtered_labor = labor_costs_df[
                             (labor_costs_df['date'] >= start_date_str) & 
                             (labor_costs_df['date'] <= end_date_str)
@@ -1605,12 +1611,12 @@ elif tab_selection == "Theo dõi Doanh thu":
                         labor_costs_in_period = filtered_labor['total_cost'].sum() if not filtered_labor.empty else 0
                     
                     # Get marketing costs for the period
+                    filtered_marketing = pd.DataFrame()
                     marketing_costs = 0
-                    if 'marketing_costs' in st.session_state and len(st.session_state.marketing_costs) > 0:
-                        marketing_cost_df = st.session_state.marketing_costs.copy()
-                        filtered_marketing = marketing_cost_df[
-                            (marketing_cost_df['date'] >= start_date_str) & 
-                            (marketing_cost_df['date'] <= end_date_str)
+                    if not marketing_costs_df.empty:
+                        filtered_marketing = marketing_costs_df[
+                            (marketing_costs_df['date'] >= start_date_str) & 
+                            (marketing_costs_df['date'] <= end_date_str)
                         ]
                         marketing_costs = filtered_marketing['amount'].sum() if not filtered_marketing.empty else 0
 
@@ -1634,18 +1640,30 @@ elif tab_selection == "Theo dõi Doanh thu":
                     cost_of_goods = filtered_income['cost_of_goods'].sum()  # Đổi tên thành chi phí nguyên liệu đã sử dụng
                     total_profit = filtered_income['profit'].sum()
                     
+                    # Calculate total costs
+                    total_costs = (
+                        cost_of_goods + 
+                        material_costs_in_period + 
+                        labor_costs_in_period + 
+                        other_production_costs + 
+                        depreciation_costs + 
+                        discount_costs + 
+                        marketing_costs
+                    )
+                    
+                    # Calculate net profit
+                    net_profit = total_sales - total_costs
+                    
                     # Display income summary
                     st.subheader("Tổng quan Doanh thu")
                     col1, col2, col3 = st.columns(3)
                     with col1:
                         st.metric("Tổng Doanh thu", f"{total_sales:,.0f} VND")
                     with col2:
-                        st.metric("Chi phí Nguyên liệu đã sử dụng", f"{cost_of_goods:,.0f} VND")
+                        st.metric("Tổng Chi phí", f"{total_costs:,.0f} VND")
                     with col3:
-                        st.metric("Lợi nhuận Gộp", f"{total_profit:,.0f} VND")
+                        st.metric("Lợi nhuận Ròng", f"{net_profit:,.0f} VND")
                     
-                    st.subheader("Chi phí & Lợi nhuận Ròng")
-
                     # Set a smaller font size for metric values
                     st.markdown("""
                     <style>
@@ -1657,28 +1675,69 @@ elif tab_selection == "Theo dõi Doanh thu":
                         }
                     </style>
                     """, unsafe_allow_html=True)
-
-                    # First row with 3 columns
-                    row1_col1, row1_col2, row1_col3 = st.columns(3)
-                    with row1_col1:
-                        st.metric("Chi phí Nhân công", f"{labor_costs_in_period:,.0f} VND")
-                    with row1_col2:
-                        st.metric("Chi phí Khác", f"{other_production_costs:,.0f} VND")
-                    with row1_col3:
-                        st.metric("Chi phí Khấu hao", f"{depreciation_costs:,.0f} VND")
-
-                    # Second row with 3 columns
+                    
+                    # Display detailed costs
+                    st.subheader("Chi tiết Chi phí")
+                    
+                    # First row of detailed costs
                     row2_col1, row2_col2, row2_col3 = st.columns(3)
+                    
                     with row2_col1:
-                        st.metric("Chi phí Giảm giá", f"{discount_costs:,.0f} VND")
+                        st.metric(
+                            "Chi phí Nguyên liệu đã sử dụng", 
+                            f"{cost_of_goods:,.0f} VND",
+                            delta=None
+                        )
+                    
                     with row2_col2:
-                        st.metric("Chi phí Marketing", f"{marketing_costs:,.0f} VND")
+                        st.metric(
+                            "Chi phí Nhập hàng", 
+                            f"{material_costs_in_period:,.0f} VND",
+                            delta=None
+                        )
+                    
                     with row2_col3:
-                        total_costs = labor_costs_in_period + other_production_costs + depreciation_costs + material_costs_in_period + discount_costs + marketing_costs
-                        net_profit = total_sales - total_costs
-                        st.metric("Lợi nhuận Ròng", f"{net_profit:,.0f} VND")
-
-                    # Display detailed costs breakdown
+                        st.metric(
+                            "Chi phí Nhân công", 
+                            f"{labor_costs_in_period:,.0f} VND",
+                            delta=None
+                        )
+                    
+                    # Second row of detailed costs
+                    row3_col1, row3_col2, row3_col3 = st.columns(3)
+                    
+                    with row3_col1:
+                        st.metric(
+                            "Chi phí Khác", 
+                            f"{other_production_costs:,.0f} VND",
+                            delta=None
+                        )
+                    
+                    with row3_col2:
+                        st.metric(
+                            "Chi phí Khấu hao", 
+                            f"{depreciation_costs:,.0f} VND",
+                            delta=None
+                        )
+                    
+                    with row3_col3:
+                        st.metric(
+                            "Chi phí Giảm giá", 
+                            f"{discount_costs:,.0f} VND",
+                            delta=None
+                        )
+                    
+                    # Third row for marketing costs
+                    row4_col1, row4_col2, row4_col3 = st.columns(3)
+                    
+                    with row4_col1:
+                        st.metric(
+                            "Chi phí Marketing", 
+                            f"{marketing_costs:,.0f} VND",
+                            delta=None
+                        )
+                    
+                    # Display profit margins
                     col1, col2 = st.columns(2)
                     with col1:
                         st.write("#### Chi tiết Chi phí:")
@@ -1687,7 +1746,7 @@ elif tab_selection == "Theo dõi Doanh thu":
                         st.write(f"- Chi phí Khác: **{other_production_costs:,.0f} VND**")
                         st.write(f"- Chi phí Khấu hao: **{depreciation_costs:,.0f} VND**")
                         st.write(f"- Chi phí Nhập hàng: **{material_costs_in_period:,.0f} VND**")
-                        st.write(f"- Chi phí Giảm giá: **{discount_costs:,.0f} VND**")  # THÊM MỚI
+                        st.write(f"- Chi phí Giảm giá: **{discount_costs:,.0f} VND**")
                         st.write(f"- Chi phí Marketing: **{marketing_costs:,.0f} VND**")
                         st.write(f"- **Tổng Chi phí: {total_costs:,.0f} VND**")
                     
@@ -1701,113 +1760,8 @@ elif tab_selection == "Theo dõi Doanh thu":
                             st.write(f"- Tỷ suất Lợi nhuận Gộp: **{gross_margin:.2f}%**")
                             st.write(f"- Tỷ suất Lợi nhuận Ròng: **{net_margin:.2f}%**")
                     
-                    # Chart for income trends
-                    if len(filtered_income) > 1:  # Only show chart if we have multiple data points
-                        st.subheader("Biểu đồ Doanh thu")
-                        chart_data = filtered_income.copy()
-                        chart_data = chart_data.sort_values('date')
-                        
-                        # Convert date format for display
-                        chart_data['formatted_date'] = chart_data['date'].apply(
-                            lambda x: datetime.datetime.strptime(x, '%Y-%m-%d').strftime('%d/%m/%Y')
-                        )
-                        
-                        # Chart data as bar chart
-                        chart = {
-                            'Ngày': chart_data['formatted_date'].tolist(),
-                            'Doanh thu': chart_data['total_sales'].tolist(),
-                            'Chi phí Nguyên liệu': chart_data['cost_of_goods'].tolist(),
-                            'Lợi nhuận': chart_data['profit'].tolist()
-                        }
-                        
-                        # Thêm chi phí khác và khấu hao vào biểu đồ nếu có
-                        if 'other_costs' in chart_data.columns:
-                            chart['Chi phí Khác'] = chart_data['other_costs'].tolist()
-                        if 'depreciation_costs' in chart_data.columns:
-                            chart['Chi phí Khấu hao'] = chart_data['depreciation_costs'].tolist()
-                        
-                        chart_df = pd.DataFrame(chart)
-                        
-                        # Use streamlit's built-in bar chart
-                        st.bar_chart(
-                            chart_df.set_index('Ngày'),
-                            use_container_width=True
-                        )
-        else:
-            st.info("Chưa có dữ liệu doanh thu. Hoàn thành đơn hàng để xem thông tin doanh thu.")
-    
-    with income_tab2:
-        st.subheader("Biểu đồ Doanh thu & Chi phí")
-        
-        # Only create the chart if we have income data
-        if len(st.session_state.income) > 0:
-            income_df = st.session_state.income.copy()
-            material_costs_df = st.session_state.material_costs.copy() if 'material_costs' in st.session_state else pd.DataFrame()
-            labor_costs_df = st.session_state.labor_costs.copy() if 'labor_costs' in st.session_state else pd.DataFrame()
-            marketing_costs_df = st.session_state.marketing_costs.copy() if 'marketing_costs' in st.session_state else pd.DataFrame()
-            
-            # Date range selection
-            try:
-                # Get min and max dates from data
-                min_date_str = income_df['date'].min()
-                max_date_str = income_df['date'].max()
-                
-                min_date = datetime.datetime.strptime(min_date_str, '%Y-%m-%d').date()
-                max_date = datetime.datetime.strptime(max_date_str, '%Y-%m-%d').date()
-                
-                # Create date input with valid defaults
-                # Adding a unique key with timestamp to force re-render
-                date_range_key = f"income_chart_range_{str(datetime.datetime.now().timestamp())}"
-                date_range = st.date_input(
-                    "Chọn Khoảng thời gian",
-                    [min_date, max_date],
-                    min_value=min_date,
-                    max_value=max_date,
-                    key=date_range_key
-                )
-                
-                if isinstance(date_range, (list, tuple)) and len(date_range) == 2:
-                    start_date, end_date = date_range
-                    
-                    # Store the selected dates in session state
-                    st.session_state.income_chart_start_date = start_date
-                    st.session_state.income_chart_end_date = end_date
-                    
-                    start_date_str = start_date.strftime('%Y-%m-%d')
-                    end_date_str = end_date.strftime('%Y-%m-%d')
-                    
-                    # Filter income data
-                    filtered_income = income_df[
-                        (income_df['date'] >= start_date_str) & 
-                        (income_df['date'] <= end_date_str)
-                    ]
-                    
-                    # Filter material costs data (chi phí nhập hàng)
-                    filtered_costs = pd.DataFrame()
-                    if not material_costs_df.empty:
-                        filtered_costs = material_costs_df[
-                            (material_costs_df['date'] >= start_date_str) & 
-                            (material_costs_df['date'] <= end_date_str)
-                        ]
-                    
-                    # Filter labor costs data (chi phí nhân công)
-                    filtered_labor = pd.DataFrame()
-                    if not labor_costs_df.empty:
-                        filtered_labor = labor_costs_df[
-                            (labor_costs_df['date'] >= start_date_str) & 
-                            (labor_costs_df['date'] <= end_date_str)
-                        ]
-                    
-                    # Filter marketing costs data (chi phí marketing)
-                    filtered_marketing = pd.DataFrame()
-                    if not marketing_costs_df.empty:
-                        filtered_marketing = marketing_costs_df[
-                            (marketing_costs_df['date'] >= start_date_str) & 
-                            (marketing_costs_df['date'] <= end_date_str)
-                        ]
-                    
-                    # Group data by date
-                    if not filtered_income.empty:
+                    # Prepare chart data - use the groupby logic from tab 2 for better visualization
+                    if len(filtered_income) > 0:
                         # Group income data by date
                         income_agg_dict = {
                             'total_sales': 'sum',
@@ -1815,7 +1769,7 @@ elif tab_selection == "Theo dõi Doanh thu":
                             'profit': 'sum'
                         }
                         
-                        # Thêm cột chi phí khác và chi phí khấu hao nếu có
+                        # Add other cost columns if they exist
                         if 'other_costs' in filtered_income.columns:
                             income_agg_dict['other_costs'] = 'sum'
                         if 'depreciation_costs' in filtered_income.columns:
@@ -1827,80 +1781,53 @@ elif tab_selection == "Theo dõi Doanh thu":
                         
                         # Calculate material costs by date (chi phí nhập hàng)
                         costs_by_date = pd.DataFrame()
-                        material_cost_sum = 0
                         if not filtered_costs.empty:
                             costs_by_date = filtered_costs.groupby('date').agg({
                                 'total_cost': 'sum'
                             }).reset_index()
                             costs_by_date.rename(columns={'total_cost': 'material_cost'}, inplace=True)
-                            material_cost_sum = filtered_costs['total_cost'].sum()
                         
                         # Calculate labor costs by date (chi phí nhân công)
                         labor_by_date = pd.DataFrame()
-                        labor_cost_sum = 0
                         if not filtered_labor.empty:
                             labor_by_date = filtered_labor.groupby('date').agg({
                                 'total_cost': 'sum'
                             }).reset_index()
                             labor_by_date.rename(columns={'total_cost': 'labor_cost'}, inplace=True)
-                            labor_cost_sum = filtered_labor['total_cost'].sum()
                         
                         # Calculate marketing costs by date (chi phí marketing)
                         marketing_by_date = pd.DataFrame()
-                        marketing_cost_sum = 0
                         if not filtered_marketing.empty:
                             marketing_by_date = filtered_marketing.groupby('date').agg({
                                 'amount': 'sum'
                             }).reset_index()
                             marketing_by_date.rename(columns={'amount': 'marketing_cost'}, inplace=True)
-                            marketing_cost_sum = filtered_marketing['amount'].sum()
-                        
-                        # Get summary values for displayed metrics
-                        total_sales_sum = filtered_income['total_sales'].sum()
-                        cost_of_goods_sum = filtered_income['cost_of_goods'].sum()
-                        other_costs_sum = filtered_income['other_costs'].sum() if 'other_costs' in filtered_income.columns else 0
-                        depreciation_costs_sum = filtered_income['depreciation_costs'].sum() if 'depreciation_costs' in filtered_income.columns else 0
-                        discount_costs_sum = filtered_income['discount_costs'].sum() if 'discount_costs' in filtered_income.columns else 0
-                        
-                        # Calculate total costs
-                        total_costs_sum = (
-                            cost_of_goods_sum + 
-                            material_cost_sum + 
-                            labor_cost_sum + 
-                            other_costs_sum + 
-                            depreciation_costs_sum + 
-                            discount_costs_sum + 
-                            marketing_cost_sum
-                        )
-                        
-                        # Calculate net profit
-                        net_profit_sum = total_sales_sum - total_costs_sum
                         
                         # Merge the dataframes for chart data
                         chart_data = income_by_date.copy()
                         
-                        # Thêm chi phí nhập hàng
+                        # Add material costs
                         if not costs_by_date.empty:
                             chart_data = chart_data.merge(costs_by_date, on='date', how='left')
                             chart_data['material_cost'] = chart_data['material_cost'].fillna(0)
                         else:
                             chart_data['material_cost'] = 0
                         
-                        # Thêm chi phí nhân công
+                        # Add labor costs
                         if not labor_by_date.empty:
                             chart_data = chart_data.merge(labor_by_date, on='date', how='left')
                             chart_data['labor_cost'] = chart_data['labor_cost'].fillna(0)
                         else:
                             chart_data['labor_cost'] = 0
                         
-                        # Thêm chi phí marketing
+                        # Add marketing costs
                         if not marketing_by_date.empty:
                             chart_data = chart_data.merge(marketing_by_date, on='date', how='left')
                             chart_data['marketing_cost'] = chart_data['marketing_cost'].fillna(0)
                         else:
                             chart_data['marketing_cost'] = 0
                         
-                        # Đảm bảo có các cột chi phí cần thiết
+                        # Ensure all necessary cost columns exist
                         if 'other_costs' not in chart_data.columns:
                             chart_data['other_costs'] = 0
                         if 'depreciation_costs' not in chart_data.columns:
@@ -1908,7 +1835,7 @@ elif tab_selection == "Theo dõi Doanh thu":
                         if 'discount_costs' not in chart_data.columns:
                             chart_data['discount_costs'] = 0
                         
-                        # Tính tổng chi phí và lợi nhuận ròng
+                        # Calculate total cost and net profit
                         chart_data['total_cost'] = (
                             chart_data['cost_of_goods'] +
                             chart_data['material_cost'] +
@@ -1929,112 +1856,13 @@ elif tab_selection == "Theo dõi Doanh thu":
                         # Sort by date
                         chart_data = chart_data.sort_values('date')
                         
-                        # Store filtered chart data in session state to ensure it's available for re-renders
+                        # Store in session state
                         st.session_state.current_chart_data = chart_data
                         
-                        # Display summary metrics
-                        # Set the custom CSS for metrics
-                        st.markdown("""
-                        <style>
-                            .stMetric .css-1wivap2 {
-                                font-size: 1.0rem !important;
-                                overflow: visible !important;
-                                text-overflow: clip !important;
-                                white-space: normal !important;
-                            }
-                        </style>
-                        """, unsafe_allow_html=True)
-                        
-                        # First row of metrics
-                        row1_col1, row1_col2, row1_col3 = st.columns(3)
-                        
-                        with row1_col1:
-                            st.metric(
-                                "Tổng Doanh thu", 
-                                f"{total_sales_sum:,.0f} VND",
-                                delta=None
-                            )
-                        
-                        with row1_col2:
-                            st.metric(
-                                "Tổng Chi phí", 
-                                f"{total_costs_sum:,.0f} VND",
-                                delta=None
-                            )
-                        
-                        with row1_col3:
-                            st.metric(
-                                "Lợi nhuận Ròng", 
-                                f"{net_profit_sum:,.0f} VND",
-                                delta=None
-                            )
-                        
-                        # Hiển thị chi tiết về chi phí
-                        st.subheader("Chi tiết Chi phí")
-                        
-                        # Row 1 of detailed costs
-                        row2_col1, row2_col2, row2_col3 = st.columns(3)
-                        
-                        with row2_col1:
-                            st.metric(
-                                "Chi phí Nguyên liệu đã sử dụng", 
-                                f"{cost_of_goods_sum:,.0f} VND",
-                                delta=None
-                            )
-                        
-                        with row2_col2:
-                            st.metric(
-                                "Chi phí Nhập hàng", 
-                                f"{material_cost_sum:,.0f} VND",
-                                delta=None
-                            )
-                        
-                        with row2_col3:
-                            st.metric(
-                                "Chi phí Nhân công", 
-                                f"{labor_cost_sum:,.0f} VND",
-                                delta=None
-                            )
-                        
-                        # Row 2 of detailed costs
-                        row3_col1, row3_col2, row3_col3 = st.columns(3)
-                        
-                        with row3_col1:
-                            st.metric(
-                                "Chi phí Khác", 
-                                f"{other_costs_sum:,.0f} VND",
-                                delta=None
-                            )
-                        
-                        with row3_col2:
-                            st.metric(
-                                "Chi phí Khấu hao", 
-                                f"{depreciation_costs_sum:,.0f} VND",
-                                delta=None
-                            )
-                        
-                        with row3_col3:
-                            st.metric(
-                                "Chi phí Giảm giá", 
-                                f"{discount_costs_sum:,.0f} VND",
-                                delta=None
-                            )
-                        
-                        # Row 3 for marketing costs
-                        row4_col1, row4_col2, row4_col3 = st.columns(3)
-                        
-                        with row4_col1:
-                            st.metric(
-                                "Chi phí Marketing", 
-                                f"{marketing_cost_sum:,.0f} VND",
-                                delta=None
-                            )
-                        
-                        # Create line chart
+                        # Create advanced chart section
                         st.subheader("Biểu đồ Doanh thu theo Thời gian")
                         
-                        # Option to select chart type
-                        # Using a unique key to force re-render
+                        # Chart type selection
                         chart_type_key = f"income_chart_type_{str(datetime.datetime.now().timestamp())}"
                         chart_type = st.radio(
                             "Loại biểu đồ",
@@ -2043,8 +1871,7 @@ elif tab_selection == "Theo dõi Doanh thu":
                             key=chart_type_key
                         )
                         
-                        # Option to select metrics to display
-                        # Using a unique key to force re-render
+                        # Metrics selection
                         metrics_key = f"income_chart_metrics_{str(datetime.datetime.now().timestamp())}"
                         metrics = st.multiselect(
                             "Chọn các chỉ số để hiển thị",
@@ -2078,7 +1905,7 @@ elif tab_selection == "Theo dõi Doanh thu":
                             "Lợi nhuận Ròng": "net_profit"
                         }
                         
-                        # Create chart data
+                        # Create and display chart
                         if metrics:
                             chart_columns = [metric_columns[m] for m in metrics if m in metric_columns]
                             if chart_columns:
@@ -2095,7 +1922,7 @@ elif tab_selection == "Theo dõi Doanh thu":
                                 else:
                                     st.bar_chart(display_df)
                         
-                        # Display data table
+                        # Display detailed data table
                         st.subheader("Dữ liệu Chi tiết")
                         
                         # Format data for display
@@ -2117,17 +1944,11 @@ elif tab_selection == "Theo dõi Doanh thu":
                         
                         if display_data:
                             st.dataframe(pd.DataFrame(display_data))
-                    else:
-                        st.info("Không có dữ liệu doanh thu trong khoảng thời gian đã chọn.")
-                
-            except Exception as e:
-                st.error(f"Lỗi khi tạo biểu đồ doanh thu: {str(e)}")
-                st.info("Vui lòng kiểm tra dữ liệu doanh thu và chi phí.")
         else:
-            st.info("Chưa có dữ liệu doanh thu để hiển thị biểu đồ.")
+            st.info("Chưa có dữ liệu doanh thu. Hoàn thành đơn hàng để xem thông tin doanh thu.")
 
     
-    with income_tab3:
+    with income_tab2:
         st.subheader("Chi phí nhập Nguyên liệu")
         
         if len(st.session_state.material_costs) > 0:
@@ -2248,7 +2069,7 @@ elif tab_selection == "Theo dõi Doanh thu":
         else:
             st.info("Chưa có dữ liệu chi phí nhập nguyên liệu. Vui lòng nhập nguyên liệu vào kho để theo dõi chi phí.")
     
-    with income_tab4:
+    with income_tab3:
         st.subheader("Chi phí Nhân công")
         
         # Add form to record new labor costs
@@ -2461,7 +2282,7 @@ elif tab_selection == "Theo dõi Doanh thu":
             st.info("Chưa có dữ liệu chi phí nhân công. Vui lòng thêm chi phí nhân công để theo dõi.")
 
     # Thêm tab Chi phí Marketing
-    with income_tab5:
+    with income_tab4:
         st.subheader("Chi phí Marketing")
         
         # Form thêm chi phí marketing mới
