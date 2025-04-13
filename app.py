@@ -1604,6 +1604,16 @@ elif tab_selection == "Theo dõi Doanh thu":
                         ]
                         labor_costs_in_period = filtered_labor['total_cost'].sum() if not filtered_labor.empty else 0
                     
+                    # Get marketing costs for the period
+                    marketing_costs = 0
+                    if 'marketing_costs' in st.session_state and len(st.session_state.marketing_costs) > 0:
+                        marketing_cost_df = st.session_state.marketing_costs.copy()
+                        filtered_marketing = marketing_cost_df[
+                            (marketing_cost_df['date'] >= start_date_str) & 
+                            (marketing_cost_df['date'] <= end_date_str)
+                        ]
+                        marketing_costs = filtered_marketing['amount'].sum() if not filtered_marketing.empty else 0
+
                     # Get other costs from income data
                     other_production_costs = 0
                     if 'other_costs' in filtered_income.columns:
@@ -1634,24 +1644,40 @@ elif tab_selection == "Theo dõi Doanh thu":
                     with col3:
                         st.metric("Lợi nhuận Gộp", f"{total_profit:,.0f} VND")
                     
-                    # Display additional costs and net profit
                     st.subheader("Chi phí & Lợi nhuận Ròng")
-                    col1, col2, col3, col4, col5 = st.columns(5)  # Thêm một cột để hiển thị chi phí giảm giá
-                    with col1:
+
+                    # Set a smaller font size for metric values
+                    st.markdown("""
+                    <style>
+                        .stMetric .css-1wivap2 {
+                            font-size: 1.0rem !important;
+                            overflow: visible !important;
+                            text-overflow: clip !important;
+                            white-space: normal !important;
+                        }
+                    </style>
+                    """, unsafe_allow_html=True)
+
+                    # First row with 3 columns
+                    row1_col1, row1_col2, row1_col3 = st.columns(3)
+                    with row1_col1:
                         st.metric("Chi phí Nhân công", f"{labor_costs_in_period:,.0f} VND")
-                    with col2:
+                    with row1_col2:
                         st.metric("Chi phí Khác", f"{other_production_costs:,.0f} VND")
-                    with col3:
+                    with row1_col3:
                         st.metric("Chi phí Khấu hao", f"{depreciation_costs:,.0f} VND")
-                    with col4:
-                        # Hiển thị chi phí giảm giá - THÊM MỚI
+
+                    # Second row with 3 columns
+                    row2_col1, row2_col2, row2_col3 = st.columns(3)
+                    with row2_col1:
                         st.metric("Chi phí Giảm giá", f"{discount_costs:,.0f} VND")
-                    with col5:
-                        # Tính lại tổng chi phí và lợi nhuận ròng (bao gồm chi phí giảm giá) - THÊM MỚI
-                        total_costs = labor_costs_in_period + other_production_costs + depreciation_costs + material_costs_in_period + discount_costs
+                    with row2_col2:
+                        st.metric("Chi phí Marketing", f"{marketing_costs:,.0f} VND")
+                    with row2_col3:
+                        total_costs = labor_costs_in_period + other_production_costs + depreciation_costs + material_costs_in_period + discount_costs + marketing_costs
                         net_profit = total_sales - total_costs
                         st.metric("Lợi nhuận Ròng", f"{net_profit:,.0f} VND")
-                    
+
                     # Display detailed costs breakdown
                     col1, col2 = st.columns(2)
                     with col1:
@@ -1662,6 +1688,7 @@ elif tab_selection == "Theo dõi Doanh thu":
                         st.write(f"- Chi phí Khấu hao: **{depreciation_costs:,.0f} VND**")
                         st.write(f"- Chi phí Nhập hàng: **{material_costs_in_period:,.0f} VND**")
                         st.write(f"- Chi phí Giảm giá: **{discount_costs:,.0f} VND**")  # THÊM MỚI
+                        st.write(f"- Chi phí Marketing: **{marketing_costs:,.0f} VND**")
                         st.write(f"- **Tổng Chi phí: {total_costs:,.0f} VND**")
                     
                     with col2:
@@ -2191,6 +2218,9 @@ elif tab_selection == "Theo dõi Doanh thu":
                 
                 # Save to storage
                 save_dataframe(st.session_state.labor_costs, "labor_costs.csv")
+
+                # Rerun to update the display immediately
+                st.rerun()
         
         # Display existing labor costs
         if 'labor_costs' in st.session_state and not st.session_state.labor_costs.empty:
@@ -2389,6 +2419,9 @@ elif tab_selection == "Theo dõi Doanh thu":
                 
                 # Lưu dữ liệu
                 save_dataframe(st.session_state.marketing_costs, "marketing_costs.csv")
+
+                # Rerun to update the display immediately
+                st.rerun()
         
         # Hiển thị chi phí marketing hiện có
         if 'marketing_costs' in st.session_state and not st.session_state.marketing_costs.empty:
