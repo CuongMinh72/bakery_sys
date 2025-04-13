@@ -1510,9 +1510,17 @@ elif tab_selection == "Theo dõi Doanh thu":
         
         return pd.DataFrame(results)
     
-    # Cập nhật hiển thị báo cáo doanh thu với tất cả các tính năng trong một tab
+    # Define a function to handle date range changes
+    def handle_date_change():
+        if "date_selected" in st.session_state:
+            # Force a rerun by updating another session state variable
+            st.session_state.date_changed = True
+
     with income_tab1:
         if len(st.session_state.income) > 0:
+            # Initialize date_changed if not present
+            if "date_changed" not in st.session_state:
+                st.session_state.date_changed = False
             # Sort by date
             income_df = st.session_state.income.sort_values('date', ascending=False)
             material_costs_df = st.session_state.material_costs.copy() if 'material_costs' in st.session_state else pd.DataFrame()
@@ -1550,13 +1558,14 @@ elif tab_selection == "Theo dõi Doanh thu":
                 if default_start > default_end:
                     default_start = default_end
                 
-                # Create date input with stable key to maintain state
+                # Create date input with callback to detect changes
                 date_range = st.date_input(
                     "Chọn Khoảng thời gian",
                     [default_start, default_end],
                     min_value=min_date,
                     max_value=max_date,
-                    key="income_date_range_fixed"
+                    key="income_date_range_fixed",
+                    on_change=handle_date_change
                 )
             except Exception as e:
                 # Fallback if date parsing fails
@@ -1574,6 +1583,7 @@ elif tab_selection == "Theo dõi Doanh thu":
                 # Store the selected dates in session state
                 st.session_state.income_chart_start_date = start_date
                 st.session_state.income_chart_end_date = end_date
+                st.session_state.date_selected = True  # Mark that a date has been selected
                 
                 # Convert dates to string format for filtering
                 start_date_str = start_date.strftime('%Y-%m-%d')
@@ -1855,21 +1865,36 @@ elif tab_selection == "Theo dõi Doanh thu":
                         # Sort by date
                         chart_data = chart_data.sort_values('date')
                         
-                        # Store in session state
+                        # Store filtered chart data in session state with date identifier
+                        chart_data_key = f"{start_date_str}_{end_date_str}"
                         st.session_state.current_chart_data = chart_data
+                        st.session_state.current_chart_data_key = chart_data_key
+                        
+                        # Reset date_changed flag after processing
+                        if "date_changed" in st.session_state:
+                            st.session_state.date_changed = False
                         
                         # Create advanced chart section
                         st.subheader("Biểu đồ Doanh thu theo Thời gian")
                         
-                        # Chart type selection with stable key
+                        # Chart type selection with callback
+                        def update_chart_type():
+                            # Force a rerun when chart type changes
+                            st.session_state.chart_type_changed = True
+                            
                         chart_type = st.radio(
                             "Loại biểu đồ",
                             ["Đường", "Cột"],
                             horizontal=True,
-                            key="income_chart_type_fixed"
+                            key="income_chart_type_fixed",
+                            on_change=update_chart_type
                         )
                         
-                        # Metrics selection with stable key
+                        # Metrics selection with callback
+                        def update_metrics():
+                            # Force a rerun when metrics selection changes
+                            st.session_state.metrics_changed = True
+                            
                         metrics = st.multiselect(
                             "Chọn các chỉ số để hiển thị",
                             [
@@ -1885,7 +1910,8 @@ elif tab_selection == "Theo dõi Doanh thu":
                                 "Lợi nhuận Ròng"
                             ],
                             default=["Doanh thu", "Tổng Chi phí", "Lợi nhuận Ròng"],
-                            key="income_chart_metrics_fixed"
+                            key="income_chart_metrics_fixed",
+                            on_change=update_metrics
                         )
                         
                         # Map selected metrics to dataframe columns
