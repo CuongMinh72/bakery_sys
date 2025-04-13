@@ -1756,16 +1756,23 @@ elif tab_selection == "Theo dõi Doanh thu":
                 max_date = datetime.datetime.strptime(max_date_str, '%Y-%m-%d').date()
                 
                 # Create date input with valid defaults
+                # Adding a unique key with timestamp to force re-render
+                date_range_key = f"income_chart_range_{str(datetime.datetime.now().timestamp())}"
                 date_range = st.date_input(
                     "Chọn Khoảng thời gian",
                     [min_date, max_date],
                     min_value=min_date,
                     max_value=max_date,
-                    key="income_chart_range"
+                    key=date_range_key
                 )
                 
                 if isinstance(date_range, (list, tuple)) and len(date_range) == 2:
                     start_date, end_date = date_range
+                    
+                    # Store the selected dates in session state
+                    st.session_state.income_chart_start_date = start_date
+                    st.session_state.income_chart_end_date = end_date
+                    
                     start_date_str = start_date.strftime('%Y-%m-%d')
                     end_date_str = end_date.strftime('%Y-%m-%d')
                     
@@ -1922,6 +1929,9 @@ elif tab_selection == "Theo dõi Doanh thu":
                         # Sort by date
                         chart_data = chart_data.sort_values('date')
                         
+                        # Store filtered chart data in session state to ensure it's available for re-renders
+                        st.session_state.current_chart_data = chart_data
+                        
                         # Display summary metrics
                         # Set the custom CSS for metrics
                         st.markdown("""
@@ -2024,14 +2034,18 @@ elif tab_selection == "Theo dõi Doanh thu":
                         st.subheader("Biểu đồ Doanh thu theo Thời gian")
                         
                         # Option to select chart type
+                        # Using a unique key to force re-render
+                        chart_type_key = f"income_chart_type_{str(datetime.datetime.now().timestamp())}"
                         chart_type = st.radio(
                             "Loại biểu đồ",
                             ["Đường", "Cột"],
                             horizontal=True,
-                            key="income_chart_type"
+                            key=chart_type_key
                         )
                         
                         # Option to select metrics to display
+                        # Using a unique key to force re-render
+                        metrics_key = f"income_chart_metrics_{str(datetime.datetime.now().timestamp())}"
                         metrics = st.multiselect(
                             "Chọn các chỉ số để hiển thị",
                             [
@@ -2041,13 +2055,13 @@ elif tab_selection == "Theo dõi Doanh thu":
                                 "Chi phí Nhân công", 
                                 "Chi phí Khác",
                                 "Chi phí Khấu hao",
-                                "Chi phí Giảm giá",  # THÊM MỚI
-                                "Chi phí Marketing",  # THÊM MỚI
+                                "Chi phí Giảm giá",
+                                "Chi phí Marketing",
                                 "Tổng Chi phí", 
                                 "Lợi nhuận Ròng"
                             ],
                             default=["Doanh thu", "Tổng Chi phí", "Lợi nhuận Ròng"],
-                            key="income_chart_metrics"
+                            key=metrics_key
                         )
                         
                         # Map selected metrics to dataframe columns
@@ -2058,8 +2072,8 @@ elif tab_selection == "Theo dõi Doanh thu":
                             "Chi phí Nhân công": "labor_cost",
                             "Chi phí Khác": "other_costs",
                             "Chi phí Khấu hao": "depreciation_costs",
-                            "Chi phí Giảm giá": "discount_costs",  # THÊM MỚI
-                            "Chi phí Marketing": "marketing_cost",  # THÊM MỚI
+                            "Chi phí Giảm giá": "discount_costs",
+                            "Chi phí Marketing": "marketing_cost",
                             "Tổng Chi phí": "total_cost",
                             "Lợi nhuận Ròng": "net_profit"
                         }
@@ -2095,8 +2109,8 @@ elif tab_selection == "Theo dõi Doanh thu":
                                 'Chi phí Nhân công': f"{row['labor_cost']:,.0f} VND",
                                 'Chi phí Khác': f"{row['other_costs']:,.0f} VND",
                                 'Chi phí Khấu hao': f"{row['depreciation_costs']:,.0f} VND",
-                                'Chi phí Giảm giá': f"{row['discount_costs']:,.0f} VND",  # THÊM MỚI
-                                'Chi phí Marketing': f"{row['marketing_cost']:,.0f} VND",  # THÊM MỚI
+                                'Chi phí Giảm giá': f"{row['discount_costs']:,.0f} VND",
+                                'Chi phí Marketing': f"{row['marketing_cost']:,.0f} VND",
                                 'Tổng Chi phí': f"{row['total_cost']:,.0f} VND",
                                 'Lợi nhuận Ròng': f"{row['net_profit']:,.0f} VND"
                             })
