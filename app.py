@@ -1755,19 +1755,33 @@ elif tab_selection == "Theo dõi Doanh thu":
                 min_date = datetime.datetime.strptime(min_date_str, '%Y-%m-%d').date()
                 max_date = datetime.datetime.strptime(max_date_str, '%Y-%m-%d').date()
                 
+                # Clear session state for the date range if needed (to avoid stale values)
+                if 'income_chart_range' in st.session_state:
+                    del st.session_state['income_chart_range']
+                
                 # Create date input with valid defaults
                 date_range = st.date_input(
                     "Chọn Khoảng thời gian",
                     [min_date, max_date],
                     min_value=min_date,
                     max_value=max_date,
-                    key="income_chart_range"
+                    key="income_chart_range_" + str(hash(min_date_str + max_date_str))  # Dynamic key to prevent caching
                 )
                 
                 if isinstance(date_range, (list, tuple)) and len(date_range) == 2:
                     start_date, end_date = date_range
                     start_date_str = start_date.strftime('%Y-%m-%d')
                     end_date_str = end_date.strftime('%Y-%m-%d')
+                    
+                    # Debug info to verify date filtering is working
+                    st.write(f"Đang hiển thị dữ liệu từ: **{start_date_str}** đến **{end_date_str}**")
+                    
+                    # Force rerun when date range changes
+                    if 'last_date_range' not in st.session_state:
+                        st.session_state.last_date_range = (start_date_str, end_date_str)
+                    elif st.session_state.last_date_range != (start_date_str, end_date_str):
+                        st.session_state.last_date_range = (start_date_str, end_date_str)
+                        st.rerun()
                     
                     # Filter income data
                     filtered_income = income_df[
@@ -1791,13 +1805,16 @@ elif tab_selection == "Theo dõi Doanh thu":
                             (labor_costs_df['date'] <= end_date_str)
                         ]
                     
-                    # Filter marketing costs data (chi phí marketing) - THÊM MỚI
+                    # Filter marketing costs data (chi phí marketing)
                     filtered_marketing = pd.DataFrame()
                     if not marketing_costs_df.empty:
                         filtered_marketing = marketing_costs_df[
                             (marketing_costs_df['date'] >= start_date_str) & 
                             (marketing_costs_df['date'] <= end_date_str)
                         ]
+                    
+                    # Debug counts
+                    st.write(f"Số bản ghi sau khi lọc: Doanh thu ({len(filtered_income)}), Chi phí nhập hàng ({len(filtered_costs)}), Chi phí nhân công ({len(filtered_labor)}), Chi phí marketing ({len(filtered_marketing)})")
                     
                     # Group data by date
                     if not filtered_income.empty:
