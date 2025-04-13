@@ -1516,11 +1516,9 @@ elif tab_selection == "Theo dõi Doanh thu":
             # Force a rerun by updating another session state variable
             st.session_state.date_changed = True
 
+    # Cập nhật hiển thị báo cáo doanh thu với tất cả các tính năng trong một tab
     with income_tab1:
         if len(st.session_state.income) > 0:
-            # Initialize date_changed if not present
-            if "date_changed" not in st.session_state:
-                st.session_state.date_changed = False
             # Sort by date
             income_df = st.session_state.income.sort_values('date', ascending=False)
             material_costs_df = st.session_state.material_costs.copy() if 'material_costs' in st.session_state else pd.DataFrame()
@@ -1558,37 +1556,44 @@ elif tab_selection == "Theo dõi Doanh thu":
                 if default_start > default_end:
                     default_start = default_end
                 
-                # Create date input with callback to detect changes
-                date_range = st.date_input(
-                    "Chọn Khoảng thời gian",
-                    [default_start, default_end],
-                    min_value=min_date,
-                    max_value=max_date,
-                    key="income_date_range_fixed",
-                    on_change=handle_date_change
-                )
-            except Exception as e:
-                # Fallback if date parsing fails
-                st.error(f"Lỗi khi xử lý ngày tháng: {str(e)}")
-                # Use a simple date range selection without defaults
-                date_range = st.date_input(
-                    "Chọn Khoảng thời gian",
-                    key="income_date_range_fallback"
-                )
-            
-            # Only proceed if we have a valid date range
-            if isinstance(date_range, (list, tuple)) and len(date_range) == 2:
-                start_date, end_date = date_range
+                # Initialize date range in session state if not present
+                if 'income_date_start' not in st.session_state or 'income_date_end' not in st.session_state:
+                    st.session_state.income_date_start = default_start
+                    st.session_state.income_date_end = default_end
                 
-                # Store the selected dates in session state
-                st.session_state.income_chart_start_date = start_date
-                st.session_state.income_chart_end_date = end_date
-                st.session_state.date_selected = True  # Mark that a date has been selected
+                # Create date range input
+                col1, col2 = st.columns(2)
+                with col1:
+                    start_date = st.date_input(
+                        "Từ ngày",
+                        value=st.session_state.income_date_start,
+                        min_value=min_date,
+                        max_value=max_date,
+                        key="income_date_start_input"
+                    )
+                
+                with col2:
+                    end_date = st.date_input(
+                        "Đến ngày",
+                        value=st.session_state.income_date_end,
+                        min_value=min_date,
+                        max_value=max_date,
+                        key="income_date_end_input"
+                    )
+                
+                # Update session state with selected dates
+                st.session_state.income_date_start = start_date
+                st.session_state.income_date_end = end_date
                 
                 # Convert dates to string format for filtering
                 start_date_str = start_date.strftime('%Y-%m-%d')
                 end_date_str = end_date.strftime('%Y-%m-%d')
                 
+                # Apply filter button
+                if st.button("Áp dụng lọc", key="apply_filter_btn"):
+                    # This button exists just to trigger a rerun with the new dates
+                    pass
+                    
                 # Filter income data
                 filtered_income = income_df[
                     (income_df['date'] >= start_date_str) & 
@@ -1599,7 +1604,7 @@ elif tab_selection == "Theo dõi Doanh thu":
                 if filtered_income.empty:
                     st.info(f"Không có dữ liệu doanh thu trong khoảng từ {start_date_str} đến {end_date_str}.")
                 else:
-                    # Get material costs for the same period (đổi tên thành chi phí nhập hàng)
+                    # Filter material costs data (chi phí nhập hàng)
                     filtered_costs = pd.DataFrame()
                     material_costs_in_period = 0
                     if not material_costs_df.empty:
@@ -1609,7 +1614,7 @@ elif tab_selection == "Theo dõi Doanh thu":
                         ]
                         material_costs_in_period = filtered_costs['total_cost'].sum() if not filtered_costs.empty else 0
                     
-                    # Get labor costs for the same period
+                    # Filter labor costs data (chi phí nhân công)
                     filtered_labor = pd.DataFrame()
                     labor_costs_in_period = 0
                     if not labor_costs_df.empty:
@@ -1619,7 +1624,7 @@ elif tab_selection == "Theo dõi Doanh thu":
                         ]
                         labor_costs_in_period = filtered_labor['total_cost'].sum() if not filtered_labor.empty else 0
                     
-                    # Get marketing costs for the period
+                    # Filter marketing costs data (chi phí marketing)
                     filtered_marketing = pd.DataFrame()
                     marketing_costs = 0
                     if not marketing_costs_df.empty:
@@ -1634,7 +1639,7 @@ elif tab_selection == "Theo dõi Doanh thu":
                     if 'other_costs' in filtered_income.columns:
                         other_production_costs = filtered_income['other_costs'].sum()
                     
-                    # Get depreciation costs (thay thế chi phí vận chuyển)
+                    # Get depreciation costs
                     depreciation_costs = 0
                     if 'depreciation_costs' in filtered_income.columns:
                         depreciation_costs = filtered_income['depreciation_costs'].sum()
@@ -1646,7 +1651,7 @@ elif tab_selection == "Theo dõi Doanh thu":
                     
                     # Calculate total profit with all costs considered
                     total_sales = filtered_income['total_sales'].sum()
-                    cost_of_goods = filtered_income['cost_of_goods'].sum()  # Đổi tên thành chi phí nguyên liệu đã sử dụng
+                    cost_of_goods = filtered_income['cost_of_goods'].sum()
                     total_profit = filtered_income['profit'].sum()
                     
                     # Calculate total costs
@@ -1769,7 +1774,7 @@ elif tab_selection == "Theo dõi Doanh thu":
                             st.write(f"- Tỷ suất Lợi nhuận Gộp: **{gross_margin:.2f}%**")
                             st.write(f"- Tỷ suất Lợi nhuận Ròng: **{net_margin:.2f}%**")
                     
-                    # Prepare chart data - use the groupby logic from tab 2 for better visualization
+                    # Prepare chart data - use the groupby logic for better visualization
                     if len(filtered_income) > 0:
                         # Group income data by date
                         income_agg_dict = {
@@ -1865,54 +1870,53 @@ elif tab_selection == "Theo dõi Doanh thu":
                         # Sort by date
                         chart_data = chart_data.sort_values('date')
                         
-                        # Store filtered chart data in session state with date identifier
-                        chart_data_key = f"{start_date_str}_{end_date_str}"
-                        st.session_state.current_chart_data = chart_data
-                        st.session_state.current_chart_data_key = chart_data_key
-                        
-                        # Reset date_changed flag after processing
-                        if "date_changed" in st.session_state:
-                            st.session_state.date_changed = False
-                        
                         # Create advanced chart section
                         st.subheader("Biểu đồ Doanh thu theo Thời gian")
                         
-                        # Chart type selection with callback
-                        def update_chart_type():
-                            # Force a rerun when chart type changes
-                            st.session_state.chart_type_changed = True
-                            
+                        # Initialize chart type in session state if not present
+                        if 'chart_type' not in st.session_state:
+                            st.session_state.chart_type = "Đường"
+                        
+                        # Chart type selection
                         chart_type = st.radio(
                             "Loại biểu đồ",
                             ["Đường", "Cột"],
                             horizontal=True,
-                            key="income_chart_type_fixed",
-                            on_change=update_chart_type
+                            index=0 if st.session_state.chart_type == "Đường" else 1,
+                            key="chart_type_radio"
                         )
                         
-                        # Metrics selection with callback
-                        def update_metrics():
-                            # Force a rerun when metrics selection changes
-                            st.session_state.metrics_changed = True
-                            
-                        metrics = st.multiselect(
+                        # Update session state
+                        st.session_state.chart_type = chart_type
+                        
+                        # Available metrics
+                        available_metrics = [
+                            "Doanh thu", 
+                            "Chi phí Nguyên liệu đã sử dụng", 
+                            "Chi phí Nhập hàng", 
+                            "Chi phí Nhân công", 
+                            "Chi phí Khác",
+                            "Chi phí Khấu hao",
+                            "Chi phí Giảm giá",
+                            "Chi phí Marketing",
+                            "Tổng Chi phí", 
+                            "Lợi nhuận Ròng"
+                        ]
+                        
+                        # Initialize metrics in session state if not present
+                        if 'selected_metrics' not in st.session_state:
+                            st.session_state.selected_metrics = ["Doanh thu", "Tổng Chi phí", "Lợi nhuận Ròng"]
+                        
+                        # Metrics selection
+                        selected_metrics = st.multiselect(
                             "Chọn các chỉ số để hiển thị",
-                            [
-                                "Doanh thu", 
-                                "Chi phí Nguyên liệu đã sử dụng", 
-                                "Chi phí Nhập hàng", 
-                                "Chi phí Nhân công", 
-                                "Chi phí Khác",
-                                "Chi phí Khấu hao",
-                                "Chi phí Giảm giá",
-                                "Chi phí Marketing",
-                                "Tổng Chi phí", 
-                                "Lợi nhuận Ròng"
-                            ],
-                            default=["Doanh thu", "Tổng Chi phí", "Lợi nhuận Ròng"],
-                            key="income_chart_metrics_fixed",
-                            on_change=update_metrics
+                            available_metrics,
+                            default=st.session_state.selected_metrics,
+                            key="metrics_multiselect"
                         )
+                        
+                        # Update session state
+                        st.session_state.selected_metrics = selected_metrics
                         
                         # Map selected metrics to dataframe columns
                         metric_columns = {
@@ -1929,14 +1933,14 @@ elif tab_selection == "Theo dõi Doanh thu":
                         }
                         
                         # Create and display chart
-                        if metrics:
-                            chart_columns = [metric_columns[m] for m in metrics if m in metric_columns]
+                        if selected_metrics:
+                            chart_columns = [metric_columns[m] for m in selected_metrics if m in metric_columns]
                             if chart_columns:
                                 # Create DataFrame for chart
                                 display_df = pd.DataFrame()
                                 display_df.index = chart_data['formatted_date']
                                 
-                                for metric, column in zip(metrics, chart_columns):
+                                for metric, column in zip(selected_metrics, chart_columns):
                                     display_df[metric] = chart_data[column]
                                 
                                 # Display the chart
@@ -1967,6 +1971,10 @@ elif tab_selection == "Theo dõi Doanh thu":
                         
                         if display_data:
                             st.dataframe(pd.DataFrame(display_data))
+            except Exception as e:
+                # Fallback if date parsing fails
+                st.error(f"Lỗi khi xử lý dữ liệu: {str(e)}")
+                st.info("Vui lòng kiểm tra dữ liệu doanh thu và chi phí.")
         else:
             st.info("Chưa có dữ liệu doanh thu. Hoàn thành đơn hàng để xem thông tin doanh thu.")
 
