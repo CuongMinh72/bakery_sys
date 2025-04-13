@@ -1534,8 +1534,14 @@ elif tab_selection == "Theo dõi Doanh thu":
                 min_date = datetime.datetime.strptime(min_date_str, '%Y-%m-%d').date()
                 max_date = datetime.datetime.strptime(max_date_str, '%Y-%m-%d').date()
                 
+                # Ensure that min_date and max_date are valid and equal if there's only one date
+                if min_date > max_date:
+                    min_date, max_date = max_date, min_date
+                    
                 # Use today's date if within range, otherwise use max_date
                 today = datetime.date.today()
+                
+                # Set default_end (making sure it's within valid range)
                 if today < min_date:
                     default_end = min_date
                 elif today > max_date:
@@ -1543,7 +1549,7 @@ elif tab_selection == "Theo dõi Doanh thu":
                 else:
                     default_end = today
                 
-                # Use first day of current month or min_date, whichever is later
+                # Set default_start (making sure it's within valid range)
                 first_day_of_month = datetime.date(today.year, today.month, 1)
                 if first_day_of_month < min_date:
                     default_start = min_date
@@ -1560,6 +1566,17 @@ elif tab_selection == "Theo dõi Doanh thu":
                 if 'income_date_start' not in st.session_state or 'income_date_end' not in st.session_state:
                     st.session_state.income_date_start = default_start
                     st.session_state.income_date_end = default_end
+                
+                # Ensure session state dates are within min_date and max_date
+                if st.session_state.income_date_start < min_date:
+                    st.session_state.income_date_start = min_date
+                elif st.session_state.income_date_start > max_date:
+                    st.session_state.income_date_start = max_date
+                    
+                if st.session_state.income_date_end < min_date:
+                    st.session_state.income_date_end = min_date
+                elif st.session_state.income_date_end > max_date:
+                    st.session_state.income_date_end = max_date
                 
                 # Create date range input
                 col1, col2 = st.columns(2)
