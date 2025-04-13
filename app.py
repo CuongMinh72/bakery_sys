@@ -1550,14 +1550,13 @@ elif tab_selection == "Theo dõi Doanh thu":
                 if default_start > default_end:
                     default_start = default_end
                 
-                # Create date input with valid defaults and a unique key for rerendering
-                date_range_key = f"income_date_range_{str(datetime.datetime.now().timestamp())}"
+                # Create date input with stable key to maintain state
                 date_range = st.date_input(
                     "Chọn Khoảng thời gian",
                     [default_start, default_end],
                     min_value=min_date,
                     max_value=max_date,
-                    key=date_range_key
+                    key="income_date_range_fixed"
                 )
             except Exception as e:
                 # Fallback if date parsing fails
@@ -1862,17 +1861,15 @@ elif tab_selection == "Theo dõi Doanh thu":
                         # Create advanced chart section
                         st.subheader("Biểu đồ Doanh thu theo Thời gian")
                         
-                        # Chart type selection
-                        chart_type_key = f"income_chart_type_{str(datetime.datetime.now().timestamp())}"
+                        # Chart type selection with stable key
                         chart_type = st.radio(
                             "Loại biểu đồ",
                             ["Đường", "Cột"],
                             horizontal=True,
-                            key=chart_type_key
+                            key="income_chart_type_fixed"
                         )
                         
-                        # Metrics selection
-                        metrics_key = f"income_chart_metrics_{str(datetime.datetime.now().timestamp())}"
+                        # Metrics selection with stable key
                         metrics = st.multiselect(
                             "Chọn các chỉ số để hiển thị",
                             [
@@ -1888,7 +1885,7 @@ elif tab_selection == "Theo dõi Doanh thu":
                                 "Lợi nhuận Ròng"
                             ],
                             default=["Doanh thu", "Tổng Chi phí", "Lợi nhuận Ròng"],
-                            key=metrics_key
+                            key="income_chart_metrics_fixed"
                         )
                         
                         # Map selected metrics to dataframe columns
