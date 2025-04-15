@@ -3046,7 +3046,7 @@ elif tab_selection == "Kho Nguyên liệu":
 
     with mat_tab3:
         st.subheader("Nhập Nguyên liệu")
-    
+
         col1, col2 = st.columns(2)
         
         with col1:
@@ -3073,12 +3073,28 @@ elif tab_selection == "Kho Nguyên liệu":
                 # Create a list of options for the selectbox
                 material_options = []
                 for _, material in st.session_state.materials.iterrows():
+                    # Get initial quantity
+                    initial_quantity = material.get('initial_quantity', None)
+                    
+                    # If initial_quantity is not available, estimate it from used_quantity
+                    if initial_quantity is None or initial_quantity <= 0:
+                        initial_quantity = material['quantity'] + material.get('used_quantity', 0)
+                        
+                    # Calculate exact percentage remaining
+                    percentage_remaining = (material['quantity'] / initial_quantity * 100) if initial_quantity > 0 else 100
+                    
+                    # Check if it's a new product (nothing used yet)
+                    is_new_product = material.get('used_quantity', 0) == 0 and material['quantity'] > 0
+                    
+                    # Determine status text based on levels (matching other tabs)
                     status = ""
                     if material['quantity'] <= 0:
                         status = " [HẾT HÀNG]"
-                    elif material['quantity'] <= 5:
-                        status = " [SẮP HẾT]"
-                        
+                    elif percentage_remaining <= 10.0 and not is_new_product:
+                        status = f" [SẮP HẾT - {percentage_remaining:.1f}%]"
+                    elif percentage_remaining <= 30.0 and not is_new_product:
+                        status = " [TRUNG BÌNH]"
+                            
                     material_options.append(f"{material['material_id']} - {material['name']} ({material['unit']}){status}")
                 
                 selected_material = st.selectbox(
@@ -3098,15 +3114,29 @@ elif tab_selection == "Kho Nguyên liệu":
                         material_idx = material_data.index[0]
                         current_quantity = st.session_state.materials.at[material_idx, 'quantity']
                         current_unit = st.session_state.materials.at[material_idx, 'unit']
+                        current_used_quantity = st.session_state.materials.at[material_idx, 'used_quantity']
                         
-                        # Show status information
+                        # Get initial quantity for percentage calculation
+                        initial_quantity = material_data.get('initial_quantity', None).iloc[0] if 'initial_quantity' in material_data.columns else None
+                        
+                        # If initial_quantity is not available, estimate it from used_quantity
+                        if initial_quantity is None or initial_quantity <= 0:
+                            initial_quantity = current_quantity + material_data['used_quantity'].iloc[0]
+                        
+                        # Calculate percentage remaining
+                        percentage_remaining = (current_quantity / initial_quantity * 100) if initial_quantity > 0 else 100
+                        is_new_product = material_data['used_quantity'].iloc[0] == 0 and current_quantity > 0
+                        
+                        # Show warning if out of stock or low stock (consistent with other tabs)
                         if current_quantity <= 0:
-                            st.error(f"⚠️ Nguyên liệu này hiện đang HẾT HÀNG! Số lượng hiện tại: {current_quantity} {current_unit}")
-                        elif current_quantity <= 5:
-                            st.warning(f"⚠️ Nguyên liệu này sắp hết hàng! Số lượng hiện tại: {current_quantity} {current_unit}")
+                            st.error(f"⚠️ Nguyên liệu này đã HẾT HÀNG! Số lượng hiện tại: {current_quantity} {current_unit}")
+                        elif percentage_remaining <= 10.0 and not is_new_product:
+                            st.warning(f"⚠️ Nguyên liệu này sắp hết hàng! Số lượng hiện tại: {current_quantity} {current_unit} ({percentage_remaining:.1f}% còn lại)")
+                        elif percentage_remaining <= 30.0 and not is_new_product:
+                            st.info(f"Nguyên liệu này còn hàng ở mức trung bình. Số lượng hiện tại: {current_quantity} {current_unit} ({percentage_remaining:.1f}% còn lại)")
                         else:
-                            st.info(f"Số lượng hiện tại: {current_quantity} {current_unit}")
-                        
+                            st.success(f"Nguyên liệu này còn đủ hàng. Số lượng hiện tại: {current_quantity} {current_unit}")
+
                         # Input import details
                         col1, col2 = st.columns(2)
                         with col1:
