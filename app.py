@@ -23,6 +23,8 @@ import json
 from datetime import date
 import pymongo
 import pandas as pd
+import plotly.express as px
+import plotly.graph_objects as go
 
 # Suppress the ScriptRunContext warnings
 warnings.filterwarnings('ignore', message='.*missing ScriptRunContext.*')
@@ -1896,10 +1898,6 @@ elif tab_selection == "Theo dõi Doanh thu":
                                 "Tổng Chi phí": "#795548",  # Brown
                                 "Lợi nhuận Ròng": "#2196F3"  # Blue
                             }
-                            
-                            # Import plotly
-                            import plotly.express as px
-                            import plotly.graph_objects as go
                             
                             # Create chart based on chart type
                             if chart_type == "Cột":
