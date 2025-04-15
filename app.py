@@ -4040,6 +4040,7 @@ elif tab_selection == "Quản lý Hóa đơn":
     
     invoice_tab1, invoice_tab2, invoice_tab3 = st.tabs(["Danh sách Hóa đơn", "Hóa đơn Chưa hoàn thành", "Xóa Hóa đơn"])
     
+    # Phần code cập nhật với lựa chọn phương thức thanh toán
     with invoice_tab1:
         if len(st.session_state.invoices) > 0:
             st.subheader("Tất cả Hóa đơn")
@@ -4093,8 +4094,12 @@ elif tab_selection == "Quản lý Hóa đơn":
                 )
             
             with col3:
-                # Get payment methods
-                payment_methods = ["Tất cả"] + list(st.session_state.invoices['payment_method'].unique())
+                # Get payment methods - Use a standard set of payment methods for consistency
+                standard_payment_methods = ["Tất cả", "Chuyển khoản", "Tiền mặt"]
+                # Add any other unique methods found in the data that aren't in our standard list
+                other_methods = [m for m in st.session_state.invoices['payment_method'].unique() 
+                                if m not in standard_payment_methods and m != "Tất cả"]
+                payment_methods = standard_payment_methods + other_methods
                 filter_payment = st.selectbox(
                     "Phương thức thanh toán",
                     payment_methods,
@@ -4185,6 +4190,19 @@ elif tab_selection == "Quản lý Hóa đơn":
                             else:
                                 new_completion_date = ""
 
+                            # Add payment method selector
+                            payment_method_options = ["Chuyển khoản", "Tiền mặt"]
+                            current_payment_method = invoice_data['payment_method']
+                            # Set default index, if current method not in options, default to first option
+                            default_payment_index = payment_method_options.index(current_payment_method) if current_payment_method in payment_method_options else 0
+                            
+                            new_payment_method = st.selectbox(
+                                "Phương thức thanh toán",
+                                options=payment_method_options,
+                                index=default_payment_index,
+                                key=f"payment_method_{selected_invoice_id}"
+                            )
+
                             # Add payment status selector
                             payment_status_options = ["Chưa thanh toán", "Đã thanh toán một phần", "Đã thanh toán"]
                             current_payment_status = status_data.get('payment_status', "Chưa thanh toán")
@@ -4202,7 +4220,7 @@ elif tab_selection == "Quản lý Hóa đơn":
                                 key=f"notes_{selected_invoice_id}"
                             )
                         
-                        # Save status changes
+                        # Sửa đoạn code có lỗi, bỏ lệnh time.sleep()
                         if st.button("Lưu trạng thái", key=f"save_status_{selected_invoice_id}"):
                             status_idx = st.session_state.invoice_status[
                                 st.session_state.invoice_status['invoice_id'] == selected_invoice_id
@@ -4218,12 +4236,20 @@ elif tab_selection == "Quản lý Hóa đơn":
                                 st.session_state.invoice_status['payment_status'] = "Chưa thanh toán"
                             st.session_state.invoice_status.at[status_idx, 'payment_status'] = new_payment_status
 
-                            # Save invoice status data
+                            # Update payment method in invoices dataframe
+                            invoice_idx = st.session_state.invoices[
+                                st.session_state.invoices['invoice_id'] == selected_invoice_id
+                            ].index[0]
+                            st.session_state.invoices.at[invoice_idx, 'payment_method'] = new_payment_method
+
+                            # Save both invoice and status data
                             save_dataframe(st.session_state.invoice_status, "invoice_status.csv")
-                            st.success(f"Trạng thái hóa đơn {selected_invoice_id} đã được cập nhật!")
-                            time.sleep(0.5)  # Brief pause to ensure data is saved
+                            save_dataframe(st.session_state.invoices, "invoices.csv")
+                            
+                            st.success(f"Thông tin hóa đơn {selected_invoice_id} đã được cập nhật!")
+                            # Bỏ dòng time.sleep(0.5) vì module time chưa được import
                             st.rerun()  # Force page rerun to refresh all components with new data
-                        
+                                                
                         # Order items
                         st.write("### Các Mặt hàng")
                         order_items = st.session_state.order_items[st.session_state.order_items['order_id'] == order_id]
