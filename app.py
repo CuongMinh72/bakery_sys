@@ -1184,17 +1184,93 @@ if previous_selection != tab_selection:
 if tab_selection == "Quản lý Đơn hàng":
     st.header("Quản lý Đơn hàng")
     
-    order_tab1, order_tab2 = st.tabs(["Đơn hàng Mới", "Lịch sử Đơn hàng"])
-    
+    order_tab1, order_tab2 = st.tabs(["Đơn hàng Mới", "Tổng hợp Đơn hàng Ngày và Nhu cầu Nguyên liệu"])
+
     with order_tab1:
         st.subheader("Tạo Đơn hàng Mới")
         
+        # Lấy danh sách khách hàng từ các đơn hàng trước
+        existing_customers = []
+        customer_info = {}
+        
+        if not st.session_state.orders.empty:
+            # Nhóm thông tin theo tên khách hàng (lấy thông tin mới nhất cho mỗi khách hàng)
+            orders_sorted = st.session_state.orders.sort_values('date', ascending=False)
+            
+            for _, order in orders_sorted.iterrows():
+                customer_name = order['customer_name']
+                
+                # Chỉ lấy thông tin cho khách hàng chưa có trong danh sách
+                if customer_name not in customer_info:
+                    customer_phone = order.get('customer_phone', '')
+                    customer_address = order.get('customer_address', '')
+                    
+                    existing_customers.append(customer_name)
+                    customer_info[customer_name] = {
+                        'phone': customer_phone,
+                        'address': customer_address
+                    }
+        
+        # Thêm tùy chọn để chọn khách hàng đã có hoặc tạo khách hàng mới
+        customer_option = st.radio(
+            "Lựa chọn khách hàng",
+            ["Khách hàng mới", "Khách hàng đã có"] if existing_customers else ["Khách hàng mới"],
+            horizontal=True
+        )
+
         col1, col2 = st.columns(2)
-        with col1:
-            customer_name = st.text_input("Tên Khách hàng")
-            customer_phone = st.text_input("Số điện thoại")
-        with col2:
-            customer_address = st.text_area("Địa chỉ giao hàng", height=100)
+        
+        if customer_option == "Khách hàng mới" or not existing_customers:
+            with col1:
+                customer_name = st.text_input("Tên Khách hàng")
+                customer_phone = st.text_input("Số điện thoại")
+                # Thêm date picker để chọn ngày đơn hàng
+                order_date = st.date_input(
+                    "Ngày đơn hàng", 
+                    value=datetime.date.today(),
+                    min_value=datetime.date(2020, 1, 1),
+                    max_value=datetime.date.today(),
+                    key="new_order_date"
+                )
+                # Chuyển đổi ngày từ date_input sang định dạng chuỗi "YYYY-MM-DD"
+                order_date_str = order_date.strftime("%Y-%m-%d")
+            with col2:
+                customer_address = st.text_area("Địa chỉ giao hàng", height=100)
+        else:
+            # Hiển thị danh sách khách hàng đã có 
+            with col1:
+                selected_customer = st.selectbox(
+                    "Chọn khách hàng",
+                    options=existing_customers,
+                    key="existing_customer_select"
+                )
+                
+                # Tự động điền thông tin từ khách hàng đã chọn
+                if selected_customer in customer_info:
+                    customer_name = selected_customer
+                    customer_phone = customer_info[selected_customer]['phone']
+                    
+                    # Hiển thị thông tin số điện thoại đã lưu nhưng cho phép chỉnh sửa
+                    customer_phone = st.text_input("Số điện thoại", value=customer_phone)
+                
+                # Thêm date picker để chọn ngày đơn hàng
+                order_date = st.date_input(
+                    "Ngày đơn hàng", 
+                    value=datetime.date.today(),
+                    min_value=datetime.date(2020, 1, 1),
+                    max_value=datetime.date.today(),
+                    key="new_order_date"
+                )
+                # Chuyển đổi ngày từ date_input sang định dạng chuỗi "YYYY-MM-DD"
+                order_date_str = order_date.strftime("%Y-%m-%d")
+                
+            with col2:
+                # Hiển thị địa chỉ đã lưu nhưng cho phép chỉnh sửa
+                if selected_customer in customer_info:
+                    saved_address = customer_info[selected_customer]['address']
+                    customer_address = st.text_area("Địa chỉ giao hàng", value=saved_address, height=100)
+                else:
+                    customer_address = st.text_area("Địa chỉ giao hàng", height=100)
         
         # Product selection
         st.subheader("Lựa chọn Sản phẩm")
@@ -1206,7 +1282,7 @@ if tab_selection == "Quản lý Đơn hàng":
             # Thêm nút dẫn đến phần quản lý sản phẩm
             if st.button("Đi đến Quản lý Sản phẩm"):
                 st.session_state.sidebar_selection = "Quản lý Sản phẩm"
-                st.rerun()  # Sửa từ st.rerun() thành st.experimental_rerun()
+                st.rerun()
                 
             # Không hiển thị phần còn lại của đơn hàng khi không có sản phẩm
             st.stop()
@@ -1254,7 +1330,6 @@ if tab_selection == "Quản lý Đơn hàng":
         total_amount = discounted_product_amount + shipping_fee
                 
         # Display totals
-        # Thay thế phần hiển thị tổng tiền hiện tại bằng code sau
         st.subheader("Tổng tiền")
         col1, col2, col3, col4 = st.columns(4)
         with col1:
@@ -1303,17 +1378,16 @@ if tab_selection == "Quản lý Đơn hàng":
                     order_id = f"ORD-{uuid.uuid4().hex[:8].upper()}"
                     
                     # Create order
-                    # Thêm thông tin giảm giá vào DataFrame đơn hàng khi tạo đơn hàng mới
                     new_order = pd.DataFrame({
                         'order_id': [order_id],
-                        'date': [date.today().strftime("%Y-%m-%d")],
+                        'date': [order_date_str],  # Sử dụng ngày từ date picker
                         'customer_name': [customer_name],
                         'customer_phone': [customer_phone],
                         'customer_address': [customer_address],
-                        'total_amount': [discounted_product_amount],  # Giá trị sản phẩm sau khi giảm giá
-                        'shipping_fee': [shipping_fee],  # Phí vận chuyển
-                        'discount_code': [discount_code if discount_amount > 0 else ''],  # Lưu mã giảm giá
-                        'discount_amount': [discount_amount],  # Lưu số tiền giảm giá
+                        'total_amount': [discounted_product_amount],
+                        'shipping_fee': [shipping_fee],
+                        'discount_code': [discount_code if discount_amount > 0 else ''],
+                        'discount_amount': [discount_amount],
                         'status': ['Hoàn thành']
                     })
                     
@@ -1346,7 +1420,7 @@ if tab_selection == "Quản lý Đơn hàng":
                         new_invoice = pd.DataFrame({
                             'invoice_id': [invoice_id],
                             'order_id': [order_id],
-                            'date': [date.today().strftime("%Y-%m-%d")],
+                            'date': [order_date_str],  # Sử dụng ngày từ date picker
                             'customer_name': [customer_name],
                             'total_amount': [total_amount],  # Use grand total (products + shipping)
                             'payment_method': ['Tiền mặt']  # Default payment method
@@ -1371,32 +1445,251 @@ if tab_selection == "Quản lý Đơn hàng":
                         st.session_state.orders = st.session_state.orders[st.session_state.orders['order_id'] != order_id]
                         st.session_state.order_items = st.session_state.order_items[st.session_state.order_items['order_id'] != order_id]
                         st.error("Không thể tạo đơn hàng do lỗi khi cập nhật nguyên liệu!")
-    
+
     with order_tab2:
-        st.subheader("Lịch sử Đơn hàng")
+        st.subheader("Tổng hợp Đơn hàng Ngày và Nhu cầu Nguyên liệu")
         
-        if len(st.session_state.orders) > 0:
-            st.dataframe(st.session_state.orders.sort_values('date', ascending=False))
+        # Chọn ngày để xem tổng hợp
+        if not st.session_state.orders.empty:
+            # Lấy danh sách các ngày có đơn hàng
+            unique_dates = sorted(st.session_state.orders['date'].unique(), reverse=True)
             
-            # Order details view
-            selected_order_id = st.selectbox("Chọn Đơn hàng để Xem Chi tiết", 
-                                           options=st.session_state.orders['order_id'].tolist(),
-                                           format_func=lambda x: f"{x} - {st.session_state.orders[st.session_state.orders['order_id'] == x]['customer_name'].iloc[0]}")
+            # Mặc định là ngày hiện tại nếu có, nếu không thì là ngày gần nhất có đơn hàng
+            today_str = datetime.date.today().strftime("%Y-%m-%d")
+            default_date_index = 0  # Mặc định là ngày mới nhất
             
-            if selected_order_id:
-                st.write("### Chi tiết Đơn hàng")
-                order_details = st.session_state.order_items[st.session_state.order_items['order_id'] == selected_order_id]
+            if today_str in unique_dates:
+                default_date_index = unique_dates.index(today_str)
+            
+            # Chọn ngày để xem tổng hợp
+            selected_date = st.selectbox(
+                "Chọn ngày để xem tổng hợp:",
+                options=unique_dates,
+                index=default_date_index,
+                key="daily_summary_date"
+            )
+            
+            # Lọc đơn hàng theo ngày đã chọn
+            daily_orders = st.session_state.orders[st.session_state.orders['date'] == selected_date]
+            
+            if not daily_orders.empty:
+                # Tính tổng số đơn hàng và doanh số trong ngày
+                total_orders = len(daily_orders)
+                total_revenue = daily_orders['total_amount'].sum()
                 
-                # Get product names
-                order_details = order_details.merge(
-                    st.session_state.products[['product_id', 'name']],
-                    on='product_id',
-                    how='left'
-                )
+                # Hiển thị thông tin tổng quan
+                st.write(f"### Tổng quan ngày {selected_date}")
                 
-                st.dataframe(order_details[['name', 'quantity', 'price', 'subtotal']])
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.metric("Số đơn hàng", f"{total_orders}")
+                with col2:
+                    st.metric("Tổng doanh thu", f"{total_revenue:,.0f} VND")
+                with col3:
+                    # Tính số lượng sản phẩm
+                    order_ids = daily_orders['order_id'].tolist()
+                    daily_order_items = st.session_state.order_items[st.session_state.order_items['order_id'].isin(order_ids)]
+                    total_products = daily_order_items['quantity'].sum()
+                    st.metric("Tổng sản phẩm", f"{total_products}")
+                
+                # Danh sách đơn hàng trong ngày
+                st.write("### Đơn hàng trong ngày")
+                
+                # Tạo DataFrame cho hiển thị
+                display_orders = pd.DataFrame({
+                    'Mã đơn hàng': daily_orders['order_id'],
+                    'Khách hàng': daily_orders['customer_name'],
+                    'Số điện thoại': daily_orders['customer_phone'],
+                    'Tổng tiền': daily_orders['total_amount'].apply(lambda x: f"{x:,.0f} VND")
+                })
+                
+                st.dataframe(display_orders)
+                
+                # Chi tiết sản phẩm đã bán trong ngày
+                st.write("### Sản phẩm đã bán trong ngày")
+                
+                if not daily_order_items.empty:
+                    # Tổng hợp sản phẩm theo product_id
+                    product_summary = daily_order_items.groupby('product_id').agg({
+                        'quantity': 'sum',
+                        'subtotal': 'sum'
+                    }).reset_index()
+                    
+                    # Kết hợp với thông tin tên sản phẩm
+                    if not st.session_state.products.empty:
+                        product_summary = product_summary.merge(
+                            st.session_state.products[['product_id', 'name']],
+                            on='product_id',
+                            how='left'
+                        )
+                        
+                        # Xử lý trường hợp sản phẩm có thể không còn tồn tại
+                        product_summary['name'] = product_summary.apply(
+                            lambda row: row['name'] if 'name' in row and not pd.isna(row['name']) else f"Sản phẩm {row['product_id']}",
+                            axis=1
+                        )
+                    else:
+                        product_summary['name'] = product_summary['product_id'].apply(
+                            lambda pid: f"Sản phẩm {pid}"
+                        )
+                    
+                    # Hiển thị tổng hợp sản phẩm
+                    display_products = pd.DataFrame({
+                        'Tên sản phẩm': product_summary['name'],
+                        'Số lượng': product_summary['quantity'],
+                        'Doanh thu': product_summary['subtotal'].apply(lambda x: f"{x:,.0f} VND")
+                    })
+                    
+                    st.dataframe(display_products)
+                    
+                    # Vẽ biểu đồ sản phẩm bán chạy
+                    st.write("### Biểu đồ sản phẩm bán chạy")
+                    
+                    # Sắp xếp sản phẩm theo số lượng giảm dần để biểu đồ dễ nhìn hơn
+                    product_chart_data = product_summary.sort_values('quantity', ascending=False)
+                    
+                    # Giới hạn số sản phẩm hiển thị trên biểu đồ nếu có quá nhiều
+                    if len(product_chart_data) > 10:
+                        product_chart_data = product_chart_data.head(10)
+                        st.info("Biểu đồ hiển thị 10 sản phẩm bán chạy nhất")
+                    
+                    st.bar_chart(
+                        product_chart_data.set_index('name')['quantity'],
+                        use_container_width=True
+                    )
+                    
+                    # Phân tích nhu cầu nguyên liệu
+                    st.write("### Nhu cầu nguyên liệu cho đơn hàng trong ngày")
+                    
+                    # Tính toán nguyên liệu cần thiết
+                    if not st.session_state.recipes.empty and not st.session_state.materials.empty:
+                        # Tạo dictionary để lưu tổng lượng nguyên liệu cần thiết
+                        material_needs = {}
+                        
+                        # Cho mỗi sản phẩm trong đơn hàng
+                        for _, item in daily_order_items.iterrows():
+                            product_id = item['product_id']
+                            quantity = item['quantity']
+                            
+                            # Lấy công thức của sản phẩm
+                            product_recipe = st.session_state.recipes[st.session_state.recipes['product_id'] == product_id]
+                            
+                            # Nếu có công thức
+                            if not product_recipe.empty:
+                                for _, recipe_item in product_recipe.iterrows():
+                                    material_id = recipe_item['material_id']
+                                    material_quantity = recipe_item['quantity'] * quantity
+                                    
+                                    # Thêm vào tổng lượng nguyên liệu cần thiết
+                                    if material_id in material_needs:
+                                        material_needs[material_id] += material_quantity
+                                    else:
+                                        material_needs[material_id] = material_quantity
+                        
+                        # Nếu có nhu cầu nguyên liệu
+                        if material_needs:
+                            # Tạo DataFrame cho hiển thị
+                            materials_list = []
+                            
+                            for material_id, quantity_needed in material_needs.items():
+                                # Lấy thông tin nguyên liệu
+                                material_data = st.session_state.materials[st.session_state.materials['material_id'] == material_id]
+                                
+                                if not material_data.empty:
+                                    material_info = material_data.iloc[0]
+                                    material_name = material_info['name']
+                                    material_unit = material_info['unit']
+                                    material_available = material_info['quantity']
+                                    
+                                    # So sánh với lượng tồn kho
+                                    status = "✅ Đủ" if material_available >= quantity_needed else "❌ Thiếu"
+                                    shortage = max(0, quantity_needed - material_available)
+                                    
+                                    materials_list.append({
+                                        'Mã nguyên liệu': material_id,
+                                        'Tên nguyên liệu': material_name,
+                                        'Đơn vị': material_unit,
+                                        'Cần dùng': round(quantity_needed, 5),
+                                        'Tồn kho': round(material_available, 5),
+                                        'Trạng thái': status,
+                                        'Thiếu': round(shortage, 5) if shortage > 0 else 0
+                                    })
+                            
+                            # Tạo DataFrame
+                            materials_df = pd.DataFrame(materials_list)
+                            
+                            # Hiển thị bảng nhu cầu nguyên liệu
+                            st.dataframe(materials_df)
+                            
+                            # Kiểm tra xem có nguyên liệu nào thiếu không
+                            shortage_materials = materials_df[materials_df['Trạng thái'] == "❌ Thiếu"]
+                            
+                            if not shortage_materials.empty:
+                                st.error("⚠️ Thiếu nguyên liệu để hoàn thành tất cả đơn hàng trong ngày!")
+                                
+                                # Hiển thị danh sách nguyên liệu thiếu
+                                st.write("### Danh sách nguyên liệu cần nhập thêm:")
+                                
+                                for _, mat in shortage_materials.iterrows():
+                                    st.warning(f"**{mat['Tên nguyên liệu']}**: " +
+                                            f"Cần thêm {mat['Thiếu']} {mat['Đơn vị']}")
+                                
+                                # Tạo nút điều hướng đến tab nhập nguyên liệu
+                                if st.button("Đi đến Nhập Nguyên liệu"):
+                                    st.session_state.sidebar_selection = "Kho Nguyên liệu"
+                                    st.rerun()
+                            else:
+                                st.success("✅ Đủ nguyên liệu cho tất cả đơn hàng trong ngày!")
+                        else:
+                            st.info("Không tìm thấy thông tin công thức cho các sản phẩm.")
+                    else:
+                        st.info("Không có dữ liệu công thức hoặc nguyên liệu để phân tích nhu cầu.")
+                else:
+                    st.info("Không có chi tiết đơn hàng cho ngày đã chọn.")
+            else:
+                st.info(f"Không có đơn hàng nào vào ngày {selected_date}.")
         else:
-            st.info("Chưa có đơn hàng nào. Hãy tạo đơn hàng mới để xem ở đây.")
+            st.info("Chưa có dữ liệu đơn hàng. Tạo đơn hàng mới để xem tổng hợp ở đây.")
+            
+        # Thêm nút để trở về danh sách tất cả đơn hàng
+        st.write("---")
+        if st.button("Xem tất cả đơn hàng"):
+            # Hiển thị tất cả đơn hàng
+            if not st.session_state.orders.empty:
+                st.write("### Tất cả đơn hàng")
+                # Tạo DataFrame cho hiển thị
+                all_orders_display = pd.DataFrame({
+                    'Mã đơn hàng': st.session_state.orders['order_id'],
+                    'Ngày': st.session_state.orders['date'],
+                    'Khách hàng': st.session_state.orders['customer_name'],
+                    'Số điện thoại': st.session_state.orders['customer_phone'],
+                    'Tổng tiền': st.session_state.orders['total_amount'].apply(lambda x: f"{x:,.0f} VND")
+                }).sort_values('Ngày', ascending=False)
+                
+                st.dataframe(all_orders_display)
+                
+                # Xem chi tiết đơn hàng
+                selected_order_id = st.selectbox("Chọn đơn hàng để xem chi tiết", 
+                                            options=st.session_state.orders['order_id'].tolist(),
+                                            format_func=lambda x: f"{x} - {st.session_state.orders[st.session_state.orders['order_id'] == x]['customer_name'].iloc[0]}")
+                
+                if selected_order_id:
+                    st.write("### Chi tiết đơn hàng")
+                    order_details = st.session_state.order_items[st.session_state.order_items['order_id'] == selected_order_id]
+                    
+                    # Get product names
+                    if not order_details.empty:
+                        order_details = order_details.merge(
+                            st.session_state.products[['product_id', 'name']],
+                            on='product_id',
+                            how='left'
+                        )
+                        
+                        st.dataframe(order_details[['name', 'quantity', 'price', 'subtotal']])
+                    else:
+                        st.info("Không tìm thấy chi tiết cho đơn hàng này.")
+            else:
+                st.info("Chưa có đơn hàng nào. Hãy tạo đơn hàng mới để xem ở đây.")
 
 # Income Tracking Tab - Updated with Revenue and Cost Table
 elif tab_selection == "Theo dõi Doanh thu":
