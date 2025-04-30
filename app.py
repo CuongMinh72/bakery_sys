@@ -792,7 +792,8 @@ def apply_discount_code(code, total_amount):
         "THUXUAN10": 0.10,  # Giảm 10%
         "THUXUAN15": 0.15,  # Giảm 15%
         "THUXUAN20": 0.20,  # Giảm 20%
-        "WELCOME": 0.05     # Giảm 5%
+        "WELCOME": 0.05,     # Giảm 5%
+        "QUATANG": 1        # Giảm 100%
     }
     
     # Kiểm tra mã giảm giá
