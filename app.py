@@ -270,6 +270,14 @@ default_labor_costs = pd.DataFrame(columns=[
     'date', 'worker_name', 'description', 'hours', 'unit_rate', 'total_cost', 'notes'
 ])
 
+default_expenses = pd.DataFrame(columns=[
+    'transaction_id', 'date', 'category', 'description', 'amount', 'payment_method', 'type'
+])
+
+default_expense_categories = pd.DataFrame(columns=[
+    'category_id', 'name', 'type'  # type: 'income' or 'expense'
+])
+
 # Load data from files or use defaults
 if 'products' not in st.session_state:
     st.session_state.products = load_dataframe("products.csv", default_products)
@@ -300,6 +308,12 @@ if 'invoice_status' not in st.session_state:
 
 if 'labor_costs' not in st.session_state:
     st.session_state.labor_costs = load_dataframe("labor_costs.csv", default_labor_costs)
+
+if 'family_expenses' not in st.session_state:
+    st.session_state.family_expenses = load_dataframe("family_expenses.csv", default_expenses)
+
+if 'expense_categories' not in st.session_state:
+    st.session_state.expense_categories = load_dataframe("expense_categories.csv", default_expense_categories)
 
 # Function to ensure we have Unicode support for Vietnamese
 def setup_vietnamese_font():
@@ -1171,8 +1185,8 @@ previous_selection = st.session_state.sidebar_selection
     
 tab_selection = st.sidebar.radio(
     "Điều hướng",
-    ["Quản lý Đơn hàng", "Theo dõi Doanh thu", "Kho Nguyên liệu", "Quản lý Sản phẩm", "Quản lý Hóa đơn", "Quản lý Dữ liệu"],
-    index=["Quản lý Đơn hàng", "Theo dõi Doanh thu", "Kho Nguyên liệu", "Quản lý Sản phẩm", "Quản lý Hóa đơn", "Quản lý Dữ liệu"].index(st.session_state.sidebar_selection)
+    ["Quản lý Đơn hàng", "Theo dõi Doanh thu", "Kho Nguyên liệu", "Quản lý Sản phẩm", "Quản lý Hóa đơn", "Quản lý Dữ liệu", "Quản lý chi tiêu gia đình"],
+    index=["Quản lý Đơn hàng", "Theo dõi Doanh thu", "Kho Nguyên liệu", "Quản lý Sản phẩm", "Quản lý Hóa đơn", "Quản lý Dữ liệu", "Quản lý chi tiêu gia đình"].index(st.session_state.sidebar_selection) if st.session_state.sidebar_selection in ["Quản lý Đơn hàng", "Theo dõi Doanh thu", "Kho Nguyên liệu", "Quản lý Sản phẩm", "Quản lý Hóa đơn", "Quản lý Dữ liệu", "Quản lý chi tiêu gia đình"] else 0
 )
 
 # Cập nhật sidebar_selection và tự động rerun nếu giá trị thay đổi
@@ -1807,555 +1821,668 @@ elif tab_selection == "Theo dõi Doanh thu":
 
    # Cập nhật hiển thị báo cáo doanh thu với tất cả các tính năng trong một tab
     with income_tab1:
-            if len(st.session_state.income) > 0:
-                # Sort by date
-                income_df = st.session_state.income.sort_values('date', ascending=False)
-                material_costs_df = st.session_state.material_costs.copy() if 'material_costs' in st.session_state else pd.DataFrame()
-                labor_costs_df = st.session_state.labor_costs.copy() if 'labor_costs' in st.session_state else pd.DataFrame()
-                marketing_costs_df = st.session_state.marketing_costs.copy() if 'marketing_costs' in st.session_state else pd.DataFrame()
+        if len(st.session_state.income) > 0:
+            # Sort by date
+            income_df = st.session_state.income.sort_values('date', ascending=False)
+            material_costs_df = st.session_state.material_costs.copy() if 'material_costs' in st.session_state else pd.DataFrame()
+            labor_costs_df = st.session_state.labor_costs.copy() if 'labor_costs' in st.session_state else pd.DataFrame()
+            marketing_costs_df = st.session_state.marketing_costs.copy() if 'marketing_costs' in st.session_state else pd.DataFrame()
+            
+            # Enhanced date filter with period options
+            period_type = st.radio(
+                "Chọn khoảng thời gian",
+                ["Tháng", "Quý", "Năm", "Tùy chỉnh"],
+                horizontal=True,
+                key="revenue_period_type"
+            )
+            
+            try:
+                # Get min and max dates from data
+                min_date_str = income_df['date'].min()
+                max_date_str = income_df['date'].max()
                 
-                # Date filter - Handle date range safely
-                try:
-                    # Get min and max dates from data
-                    min_date_str = income_df['date'].min()
-                    max_date_str = income_df['date'].max()
+                min_date = datetime.datetime.strptime(min_date_str, '%Y-%m-%d').date()
+                max_date = datetime.datetime.strptime(max_date_str, '%Y-%m-%d').date()
+                
+                # Ensure that min_date and max_date are valid and equal if there's only one date
+                if min_date > max_date:
+                    min_date, max_date = max_date, min_date
                     
-                    min_date = datetime.datetime.strptime(min_date_str, '%Y-%m-%d').date()
-                    max_date = datetime.datetime.strptime(max_date_str, '%Y-%m-%d').date()
+                # Use today's date if within range, otherwise use max_date
+                today = datetime.date.today()
+                
+                if period_type == "Tháng":
+                    # Month selection
+                    # Find current month in the data
+                    current_month = today.month if today <= max_date else max_date.month
+                    current_year = today.year if today <= max_date else max_date.year
                     
-                    # Ensure that min_date and max_date are valid and equal if there's only one date
-                    if min_date > max_date:
-                        min_date, max_date = max_date, min_date
-                        
-                    # Use today's date if within range, otherwise use max_date
-                    today = datetime.date.today()
+                    # Find available years in the data
+                    all_dates = pd.to_datetime(income_df['date'])
+                    available_years = sorted(list(set(date.year for date in all_dates)))
                     
-                    # Set default_end (making sure it's within valid range)
-                    if today < min_date:
-                        default_end = min_date
-                    elif today > max_date:
-                        default_end = max_date
+                    # Year selection first
+                    selected_year = st.selectbox(
+                        "Chọn năm",
+                        options=available_years,
+                        index=available_years.index(current_year) if current_year in available_years else 0,
+                        key="revenue_year_select"
+                    )
+                    
+                    # Month selection
+                    selected_month = st.selectbox(
+                        "Chọn tháng",
+                        options=range(1, 13),
+                        index=current_month - 1,
+                        format_func=lambda x: f"Tháng {x}/{selected_year}",
+                        key="revenue_month_select"
+                    )
+                    
+                    # Calculate start and end dates
+                    start_date = datetime.date(selected_year, selected_month, 1)
+                    if selected_month == 12:
+                        end_date = datetime.date(selected_year + 1, 1, 1) - datetime.timedelta(days=1)
                     else:
-                        default_end = today
-                    
-                    # Set default_start (making sure it's within valid range)
-                    first_day_of_month = datetime.date(today.year, today.month, 1)
-                    if first_day_of_month < min_date:
-                        default_start = min_date
-                    elif first_day_of_month > max_date:
-                        default_start = max_date
-                    else:
-                        default_start = first_day_of_month
-                    
-                    # Ensure the default range is valid
-                    if default_start > default_end:
-                        default_start = default_end
-                    
-                    # Initialize date range in session state if not present
-                    if 'income_date_start' not in st.session_state or 'income_date_end' not in st.session_state:
-                        st.session_state.income_date_start = default_start
-                        st.session_state.income_date_end = default_end
-                    
-                    # Ensure session state dates are within min_date and max_date
-                    if st.session_state.income_date_start < min_date:
-                        st.session_state.income_date_start = min_date
-                    elif st.session_state.income_date_start > max_date:
-                        st.session_state.income_date_start = max_date
+                        end_date = datetime.date(selected_year, selected_month + 1, 1) - datetime.timedelta(days=1)
                         
-                    if st.session_state.income_date_end < min_date:
-                        st.session_state.income_date_end = min_date
-                    elif st.session_state.income_date_end > max_date:
-                        st.session_state.income_date_end = max_date
+                elif period_type == "Quý":
+                    # Quarter selection
+                    # Find current quarter in the data
+                    current_month = today.month if today <= max_date else max_date.month
+                    current_quarter = (current_month - 1) // 3 + 1
+                    current_year = today.year if today <= max_date else max_date.year
                     
-                    # Create date range input
+                    # Find available years in the data
+                    all_dates = pd.to_datetime(income_df['date'])
+                    available_years = sorted(list(set(date.year for date in all_dates)))
+                    
+                    # Year selection first
+                    selected_year = st.selectbox(
+                        "Chọn năm",
+                        options=available_years,
+                        index=available_years.index(current_year) if current_year in available_years else 0,
+                        key="revenue_year_quarter_select"
+                    )
+                    
+                    # Quarter selection
+                    selected_quarter = st.selectbox(
+                        "Chọn quý",
+                        options=range(1, 5),
+                        index=current_quarter - 1,
+                        format_func=lambda x: f"Quý {x}/{selected_year}",
+                        key="revenue_quarter_select"
+                    )
+                    
+                    # Calculate start and end dates
+                    start_month = (selected_quarter - 1) * 3 + 1
+                    start_date = datetime.date(selected_year, start_month, 1)
+                    if start_month + 3 > 12:
+                        end_date = datetime.date(selected_year + 1, (start_month + 3) % 12, 1) - datetime.timedelta(days=1)
+                    else:
+                        end_date = datetime.date(selected_year, start_month + 3, 1) - datetime.timedelta(days=1)
+                        
+                elif period_type == "Năm":
+                    # Year selection
+                    # Find available years in the data
+                    all_dates = pd.to_datetime(income_df['date'])
+                    available_years = sorted(list(set(date.year for date in all_dates)))
+                    
+                    current_year = today.year if today <= max_date else max_date.year
+                    
+                    selected_year = st.selectbox(
+                        "Chọn năm",
+                        options=available_years,
+                        index=available_years.index(current_year) if current_year in available_years else 0,
+                        key="revenue_year_only_select"
+                    )
+                    
+                    # Calculate start and end dates
+                    start_date = datetime.date(selected_year, 1, 1)
+                    end_date = datetime.date(selected_year, 12, 31)
+                    
+                else:  # Custom period
                     col1, col2 = st.columns(2)
                     with col1:
+                        # Set default_start to first day of current month if within range
+                        first_day_of_month = datetime.date(today.year, today.month, 1)
+                        
+                        default_start = first_day_of_month
+                        if default_start < min_date:
+                            default_start = min_date
+                        elif default_start > max_date:
+                            default_start = min_date
+                        
                         start_date = st.date_input(
                             "Từ ngày",
-                            value=st.session_state.income_date_start,
+                            value=default_start,
                             min_value=min_date,
                             max_value=max_date,
-                            key="income_date_start_input"
+                            key="revenue_start_date"
                         )
                     
                     with col2:
+                        # Set default_end to today if within range, otherwise max_date
+                        default_end = today if today <= max_date else max_date
+                        
                         end_date = st.date_input(
                             "Đến ngày",
-                            value=st.session_state.income_date_end,
-                            min_value=min_date,
+                            value=default_end,
+                            min_value=start_date,
                             max_value=max_date,
-                            key="income_date_end_input"
+                            key="revenue_end_date"
+                        )
+                
+                # Convert dates to string format for filtering
+                start_date_str = start_date.strftime('%Y-%m-%d')
+                end_date_str = end_date.strftime('%Y-%m-%d')
+                
+                # Display selected date range
+                st.write(f"### Doanh thu từ {start_date_str} đến {end_date_str}")
+                
+                # Apply filter button
+                if st.button("Áp dụng lọc", key="apply_revenue_filter_btn"):
+                    # This button exists just to trigger a rerun with the new dates
+                    pass
+                    
+                # Filter income data with the new dates
+                filtered_income = income_df[
+                    (income_df['date'] >= start_date_str) & 
+                    (income_df['date'] <= end_date_str)
+                ]
+                                
+                # Check if we have data in the selected range
+                if filtered_income.empty:
+                    st.info(f"Không có dữ liệu doanh thu trong khoảng từ {start_date_str} đến {end_date_str}.")
+                else:
+                    # Filter material costs data (chi phí nhập hàng)
+                    filtered_costs = pd.DataFrame()
+                    material_costs_in_period = 0
+                    if not material_costs_df.empty:
+                        filtered_costs = material_costs_df[
+                            (material_costs_df['date'] >= start_date_str) & 
+                            (material_costs_df['date'] <= end_date_str)
+                        ]
+                        material_costs_in_period = filtered_costs['total_cost'].sum() if not filtered_costs.empty else 0
+                    
+                    # Filter labor costs data (chi phí nhân công)
+                    filtered_labor = pd.DataFrame()
+                    labor_costs_in_period = 0
+                    if not labor_costs_df.empty:
+                        filtered_labor = labor_costs_df[
+                            (labor_costs_df['date'] >= start_date_str) & 
+                            (labor_costs_df['date'] <= end_date_str)
+                        ]
+                        labor_costs_in_period = filtered_labor['total_cost'].sum() if not filtered_labor.empty else 0
+                    
+                    # Filter marketing costs data (chi phí marketing)
+                    filtered_marketing = pd.DataFrame()
+                    marketing_costs = 0
+                    if not marketing_costs_df.empty:
+                        filtered_marketing = marketing_costs_df[
+                            (marketing_costs_df['date'] >= start_date_str) & 
+                            (marketing_costs_df['date'] <= end_date_str)
+                        ]
+                        marketing_costs = filtered_marketing['amount'].sum() if not filtered_marketing.empty else 0
+
+                    # Get other costs from income data
+                    other_production_costs = 0
+                    if 'other_costs' in filtered_income.columns:
+                        other_production_costs = filtered_income['other_costs'].sum()
+                    
+                    # Get depreciation costs
+                    depreciation_costs = 0
+                    if 'depreciation_costs' in filtered_income.columns:
+                        depreciation_costs = filtered_income['depreciation_costs'].sum()
+
+                    # Get discount costs 
+                    discount_costs = 0
+                    if 'discount_costs' in filtered_income.columns:
+                        discount_costs = filtered_income['discount_costs'].sum()
+                    
+                    # Calculate total profit with all costs considered
+                    total_sales = filtered_income['total_sales'].sum()
+                    cost_of_goods = filtered_income['cost_of_goods'].sum()
+                    total_profit = filtered_income['profit'].sum()
+                    
+                    # Calculate total costs
+                    total_costs = (
+                        cost_of_goods + 
+                        material_costs_in_period + 
+                        labor_costs_in_period + 
+                        other_production_costs + 
+                        depreciation_costs + 
+                        discount_costs + 
+                        marketing_costs
+                    )
+                    
+                    # Calculate net profit
+                    net_profit = total_sales - total_costs
+                    
+                    # Display income summary
+                    st.subheader("Tổng quan Doanh thu")
+                    col1, col2, col3 = st.columns(3)
+                    with col1:
+                        st.metric("Tổng Doanh thu", f"{total_sales:,.0f} VND")
+                    with col2:
+                        st.metric("Tổng Chi phí", f"{total_costs:,.0f} VND")
+                    with col3:
+                        st.metric("Lợi nhuận Ròng", f"{net_profit:,.0f} VND")
+                    
+                    # Set a smaller font size for metric values
+                    st.markdown("""
+                    <style>
+                        .stMetric .css-1wivap2 {
+                            font-size: 1.0rem !important;
+                            overflow: visible !important;
+                            text-overflow: clip !important;
+                            white-space: normal !important;
+                        }
+                    </style>
+                    """, unsafe_allow_html=True)
+                    
+                    # Display detailed costs
+                    st.subheader("Chi tiết Chi phí")
+                    
+                    # First row of detailed costs
+                    row2_col1, row2_col2, row2_col3 = st.columns(3)
+                    
+                    with row2_col1:
+                        st.metric(
+                            "Chi phí Nguyên liệu đã sử dụng", 
+                            f"{cost_of_goods:,.0f} VND",
+                            delta=None
                         )
                     
-                    # Update session state with selected dates
-                    st.session_state.income_date_start = start_date
-                    st.session_state.income_date_end = end_date
+                    with row2_col2:
+                        st.metric(
+                            "Chi phí Nhập hàng", 
+                            f"{material_costs_in_period:,.0f} VND",
+                            delta=None
+                        )
                     
-                    # Convert dates to string format for filtering
-                    start_date_str = start_date.strftime('%Y-%m-%d')
-                    end_date_str = end_date.strftime('%Y-%m-%d')
+                    with row2_col3:
+                        st.metric(
+                            "Chi phí Nhân công", 
+                            f"{labor_costs_in_period:,.0f} VND",
+                            delta=None
+                        )
                     
-                    # Apply filter button
-                    if st.button("Áp dụng lọc", key="apply_filter_btn"):
-                        # This button exists just to trigger a rerun with the new dates
-                        pass
-                        
-                    # Filter income data
-                    filtered_income = income_df[
-                        (income_df['date'] >= start_date_str) & 
-                        (income_df['date'] <= end_date_str)
+                    # Second row of detailed costs
+                    row3_col1, row3_col2, row3_col3 = st.columns(3)
+                    
+                    with row3_col1:
+                        st.metric(
+                            "Chi phí Khác", 
+                            f"{other_production_costs:,.0f} VND",
+                            delta=None
+                        )
+                    
+                    with row3_col2:
+                        st.metric(
+                            "Chi phí Khấu hao", 
+                            f"{depreciation_costs:,.0f} VND",
+                            delta=None
+                        )
+                    
+                    with row3_col3:
+                        st.metric(
+                            "Chi phí Giảm giá", 
+                            f"{discount_costs:,.0f} VND",
+                            delta=None
+                        )
+                    
+                    # Third row for marketing costs
+                    row4_col1, row4_col2, row4_col3 = st.columns(3)
+                    
+                    with row4_col1:
+                        st.metric(
+                            "Chi phí Marketing", 
+                            f"{marketing_costs:,.0f} VND",
+                            delta=None
+                        )
+                    
+                    # Display profit margins
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        st.write("#### Chi tiết Chi phí:")
+                        st.write(f"- Chi phí Nguyên liệu đã sử dụng: **{cost_of_goods:,.0f} VND**")
+                        st.write(f"- Chi phí Nhân công: **{labor_costs_in_period:,.0f} VND**")
+                        st.write(f"- Chi phí Khác: **{other_production_costs:,.0f} VND**")
+                        st.write(f"- Chi phí Khấu hao: **{depreciation_costs:,.0f} VND**")
+                        st.write(f"- Chi phí Nhập hàng: **{material_costs_in_period:,.0f} VND**")
+                        st.write(f"- Chi phí Giảm giá: **{discount_costs:,.0f} VND**")
+                        st.write(f"- Chi phí Marketing: **{marketing_costs:,.0f} VND**")
+                        st.write(f"- **Tổng Chi phí: {total_costs:,.0f} VND**")
+                    
+                    with col2:
+                        # Display profit margins
+                        if total_sales > 0:
+                            gross_margin = (total_profit / total_sales) * 100
+                            net_margin = (net_profit / total_sales) * 100
+                            
+                            st.write("#### Tỷ suất Lợi nhuận:")
+                            st.write(f"- Tỷ suất Lợi nhuận Gộp: **{gross_margin:.2f}%**")
+                            st.write(f"- Tỷ suất Lợi nhuận Ròng: **{net_margin:.2f}%**")
+                    
+                    # Create biểu đồ using the same data as above
+                    st.subheader("Biểu đồ Doanh thu")
+                    
+                    # Create data for chart
+                    chart_data = {
+                        "Loại": [],
+                        "Giá trị": []
+                    }
+                    
+                    # Add data points
+                    chart_data["Loại"].append("Doanh thu")
+                    chart_data["Giá trị"].append(total_sales)
+                    
+                    chart_data["Loại"].append("Chi phí Nguyên liệu")
+                    chart_data["Giá trị"].append(cost_of_goods)
+                    
+                    chart_data["Loại"].append("Chi phí Nhập hàng")
+                    chart_data["Giá trị"].append(material_costs_in_period)
+                    
+                    chart_data["Loại"].append("Chi phí Nhân công")
+                    chart_data["Giá trị"].append(labor_costs_in_period)
+                    
+                    chart_data["Loại"].append("Chi phí Khác")
+                    chart_data["Giá trị"].append(other_production_costs)
+                    
+                    chart_data["Loại"].append("Chi phí Khấu hao")
+                    chart_data["Giá trị"].append(depreciation_costs)
+                    
+                    chart_data["Loại"].append("Chi phí Giảm giá")
+                    chart_data["Giá trị"].append(discount_costs)
+                    
+                    chart_data["Loại"].append("Chi phí Marketing")
+                    chart_data["Giá trị"].append(marketing_costs)
+                    
+                    chart_data["Loại"].append("Tổng Chi phí")
+                    chart_data["Giá trị"].append(total_costs)
+                    
+                    chart_data["Loại"].append("Lợi nhuận Ròng")
+                    chart_data["Giá trị"].append(net_profit)
+                    
+                    # Convert to DataFrame
+                    chart_df = pd.DataFrame(chart_data)
+                    
+                    # Initialize chart type in session state if not present
+                    if 'chart_type' not in st.session_state:
+                        st.session_state.chart_type = "Cột"
+                    
+                    # Chart type selection
+                    chart_type = st.radio(
+                        "Loại biểu đồ",
+                        ["Cột", "Đường"],
+                        horizontal=True,
+                        index=0 if st.session_state.chart_type == "Cột" else (1 if st.session_state.chart_type == "Đường" else 2),
+                        key="chart_type_radio"
+                    )
+                    
+                    # Update session state
+                    st.session_state.chart_type = chart_type
+                    
+                    # Available metrics - use the actual data from above
+                    available_metrics = [
+                        "Doanh thu", 
+                        "Chi phí Nguyên liệu", 
+                        "Chi phí Nhập hàng", 
+                        "Chi phí Nhân công", 
+                        "Chi phí Khác",
+                        "Chi phí Khấu hao",
+                        "Chi phí Giảm giá",
+                        "Chi phí Marketing",
+                        "Tổng Chi phí", 
+                        "Lợi nhuận Ròng"
                     ]
                     
-                    # Check if we have data in the selected range
-                    if filtered_income.empty:
-                        st.info(f"Không có dữ liệu doanh thu trong khoảng từ {start_date_str} đến {end_date_str}.")
-                    else:
-                        # Filter material costs data (chi phí nhập hàng)
-                        filtered_costs = pd.DataFrame()
-                        material_costs_in_period = 0
-                        if not material_costs_df.empty:
-                            filtered_costs = material_costs_df[
-                                (material_costs_df['date'] >= start_date_str) & 
-                                (material_costs_df['date'] <= end_date_str)
-                            ]
-                            material_costs_in_period = filtered_costs['total_cost'].sum() if not filtered_costs.empty else 0
+                    # Initialize metrics in session state if not present
+                    if 'selected_metrics' not in st.session_state:
+                        st.session_state.selected_metrics = ["Doanh thu", "Tổng Chi phí", "Lợi nhuận Ròng"]
+                    
+                    # Metrics selection
+                    selected_metrics = st.multiselect(
+                        "Chọn các chỉ số để hiển thị",
+                        available_metrics,
+                        default=st.session_state.selected_metrics,
+                        key="metrics_multiselect"
+                    )
+                    
+                    # Update session state
+                    st.session_state.selected_metrics = selected_metrics
+                    
+                    # Filter chart data based on selected metrics
+                    if selected_metrics:
+                        filtered_chart_df = chart_df[chart_df["Loại"].isin(selected_metrics)]
                         
-                        # Filter labor costs data (chi phí nhân công)
-                        filtered_labor = pd.DataFrame()
-                        labor_costs_in_period = 0
-                        if not labor_costs_df.empty:
-                            filtered_labor = labor_costs_df[
-                                (labor_costs_df['date'] >= start_date_str) & 
-                                (labor_costs_df['date'] <= end_date_str)
-                            ]
-                            labor_costs_in_period = filtered_labor['total_cost'].sum() if not filtered_labor.empty else 0
-                        
-                        # Filter marketing costs data (chi phí marketing)
-                        filtered_marketing = pd.DataFrame()
-                        marketing_costs = 0
-                        if not marketing_costs_df.empty:
-                            filtered_marketing = marketing_costs_df[
-                                (marketing_costs_df['date'] >= start_date_str) & 
-                                (marketing_costs_df['date'] <= end_date_str)
-                            ]
-                            marketing_costs = filtered_marketing['amount'].sum() if not filtered_marketing.empty else 0
-
-                        # Get other costs from income data
-                        other_production_costs = 0
-                        if 'other_costs' in filtered_income.columns:
-                            other_production_costs = filtered_income['other_costs'].sum()
-                        
-                        # Get depreciation costs
-                        depreciation_costs = 0
-                        if 'depreciation_costs' in filtered_income.columns:
-                            depreciation_costs = filtered_income['depreciation_costs'].sum()
-
-                        # Get discount costs 
-                        discount_costs = 0
-                        if 'discount_costs' in filtered_income.columns:
-                            discount_costs = filtered_income['discount_costs'].sum()
-                        
-                        # Calculate total profit with all costs considered
-                        total_sales = filtered_income['total_sales'].sum()
-                        cost_of_goods = filtered_income['cost_of_goods'].sum()
-                        total_profit = filtered_income['profit'].sum()
-                        
-                        # Calculate total costs
-                        total_costs = (
-                            cost_of_goods + 
-                            material_costs_in_period + 
-                            labor_costs_in_period + 
-                            other_production_costs + 
-                            depreciation_costs + 
-                            discount_costs + 
-                            marketing_costs
-                        )
-                        
-                        # Calculate net profit
-                        net_profit = total_sales - total_costs
-                        
-                        # Display income summary
-                        st.subheader("Tổng quan Doanh thu")
-                        col1, col2, col3 = st.columns(3)
-                        with col1:
-                            st.metric("Tổng Doanh thu", f"{total_sales:,.0f} VND")
-                        with col2:
-                            st.metric("Tổng Chi phí", f"{total_costs:,.0f} VND")
-                        with col3:
-                            st.metric("Lợi nhuận Ròng", f"{net_profit:,.0f} VND")
-                        
-                        # Set a smaller font size for metric values
-                        st.markdown("""
-                        <style>
-                            .stMetric .css-1wivap2 {
-                                font-size: 1.0rem !important;
-                                overflow: visible !important;
-                                text-overflow: clip !important;
-                                white-space: normal !important;
-                            }
-                        </style>
-                        """, unsafe_allow_html=True)
-                        
-                        # Display detailed costs
-                        st.subheader("Chi tiết Chi phí")
-                        
-                        # First row of detailed costs
-                        row2_col1, row2_col2, row2_col3 = st.columns(3)
-                        
-                        with row2_col1:
-                            st.metric(
-                                "Chi phí Nguyên liệu đã sử dụng", 
-                                f"{cost_of_goods:,.0f} VND",
-                                delta=None
-                            )
-                        
-                        with row2_col2:
-                            st.metric(
-                                "Chi phí Nhập hàng", 
-                                f"{material_costs_in_period:,.0f} VND",
-                                delta=None
-                            )
-                        
-                        with row2_col3:
-                            st.metric(
-                                "Chi phí Nhân công", 
-                                f"{labor_costs_in_period:,.0f} VND",
-                                delta=None
-                            )
-                        
-                        # Second row of detailed costs
-                        row3_col1, row3_col2, row3_col3 = st.columns(3)
-                        
-                        with row3_col1:
-                            st.metric(
-                                "Chi phí Khác", 
-                                f"{other_production_costs:,.0f} VND",
-                                delta=None
-                            )
-                        
-                        with row3_col2:
-                            st.metric(
-                                "Chi phí Khấu hao", 
-                                f"{depreciation_costs:,.0f} VND",
-                                delta=None
-                            )
-                        
-                        with row3_col3:
-                            st.metric(
-                                "Chi phí Giảm giá", 
-                                f"{discount_costs:,.0f} VND",
-                                delta=None
-                            )
-                        
-                        # Third row for marketing costs
-                        row4_col1, row4_col2, row4_col3 = st.columns(3)
-                        
-                        with row4_col1:
-                            st.metric(
-                                "Chi phí Marketing", 
-                                f"{marketing_costs:,.0f} VND",
-                                delta=None
-                            )
-                        
-                        # Display profit margins
-                        col1, col2 = st.columns(2)
-                        with col1:
-                            st.write("#### Chi tiết Chi phí:")
-                            st.write(f"- Chi phí Nguyên liệu đã sử dụng: **{cost_of_goods:,.0f} VND**")
-                            st.write(f"- Chi phí Nhân công: **{labor_costs_in_period:,.0f} VND**")
-                            st.write(f"- Chi phí Khác: **{other_production_costs:,.0f} VND**")
-                            st.write(f"- Chi phí Khấu hao: **{depreciation_costs:,.0f} VND**")
-                            st.write(f"- Chi phí Nhập hàng: **{material_costs_in_period:,.0f} VND**")
-                            st.write(f"- Chi phí Giảm giá: **{discount_costs:,.0f} VND**")
-                            st.write(f"- Chi phí Marketing: **{marketing_costs:,.0f} VND**")
-                            st.write(f"- **Tổng Chi phí: {total_costs:,.0f} VND**")
-                        
-                        with col2:
-                            # Display profit margins
-                            if total_sales > 0:
-                                gross_margin = (total_profit / total_sales) * 100
-                                net_margin = (net_profit / total_sales) * 100
-                                
-                                st.write("#### Tỷ suất Lợi nhuận:")
-                                st.write(f"- Tỷ suất Lợi nhuận Gộp: **{gross_margin:.2f}%**")
-                                st.write(f"- Tỷ suất Lợi nhuận Ròng: **{net_margin:.2f}%**")
-                        
-                        # Create biểu đồ using the same data as above
-                        st.subheader("Biểu đồ Doanh thu")
-                        
-                        # Create data for chart
-                        chart_data = {
-                            "Loại": [],
-                            "Giá trị": []
+                        # Define a consistent color palette (add more colors if needed)
+                        colors = {
+                            "Doanh thu": "#4CAF50",  # Green
+                            "Chi phí Nguyên liệu": "#F44336",  # Red
+                            "Chi phí Nhập hàng": "#FF5722",  # Deep Orange
+                            "Chi phí Nhân công": "#9C27B0",  # Purple
+                            "Chi phí Khác": "#3F51B5",  # Indigo
+                            "Chi phí Khấu hao": "#03A9F4",  # Light Blue
+                            "Chi phí Giảm giá": "#009688",  # Teal
+                            "Chi phí Marketing": "#FFC107",  # Amber
+                            "Tổng Chi phí": "#795548",  # Brown
+                            "Lợi nhuận Ròng": "#2196F3"  # Blue
                         }
                         
-                        # Add data points
-                        chart_data["Loại"].append("Doanh thu")
-                        chart_data["Giá trị"].append(total_sales)
-                        
-                        chart_data["Loại"].append("Chi phí Nguyên liệu")
-                        chart_data["Giá trị"].append(cost_of_goods)
-                        
-                        chart_data["Loại"].append("Chi phí Nhập hàng")
-                        chart_data["Giá trị"].append(material_costs_in_period)
-                        
-                        chart_data["Loại"].append("Chi phí Nhân công")
-                        chart_data["Giá trị"].append(labor_costs_in_period)
-                        
-                        chart_data["Loại"].append("Chi phí Khác")
-                        chart_data["Giá trị"].append(other_production_costs)
-                        
-                        chart_data["Loại"].append("Chi phí Khấu hao")
-                        chart_data["Giá trị"].append(depreciation_costs)
-                        
-                        chart_data["Loại"].append("Chi phí Giảm giá")
-                        chart_data["Giá trị"].append(discount_costs)
-                        
-                        chart_data["Loại"].append("Chi phí Marketing")
-                        chart_data["Giá trị"].append(marketing_costs)
-                        
-                        chart_data["Loại"].append("Tổng Chi phí")
-                        chart_data["Giá trị"].append(total_costs)
-                        
-                        chart_data["Loại"].append("Lợi nhuận Ròng")
-                        chart_data["Giá trị"].append(net_profit)
-                        
-                        # Convert to DataFrame
-                        chart_df = pd.DataFrame(chart_data)
-                        
-                        # Initialize chart type in session state if not present
-                        if 'chart_type' not in st.session_state:
-                            st.session_state.chart_type = "Cột"
-                        
-                        # Chart type selection
-                        chart_type = st.radio(
-                            "Loại biểu đồ",
-                            ["Cột", "Đường"],
-                            horizontal=True,
-                            index=0 if st.session_state.chart_type == "Cột" else (1 if st.session_state.chart_type == "Đường" else 2),
-                            key="chart_type_radio"
-                        )
-                        
-                        # Update session state
-                        st.session_state.chart_type = chart_type
-                        
-                        # Available metrics - use the actual data from above
-                        available_metrics = [
-                            "Doanh thu", 
-                            "Chi phí Nguyên liệu", 
-                            "Chi phí Nhập hàng", 
-                            "Chi phí Nhân công", 
-                            "Chi phí Khác",
-                            "Chi phí Khấu hao",
-                            "Chi phí Giảm giá",
-                            "Chi phí Marketing",
-                            "Tổng Chi phí", 
-                            "Lợi nhuận Ròng"
-                        ]
-                        
-                        # Initialize metrics in session state if not present
-                        if 'selected_metrics' not in st.session_state:
-                            st.session_state.selected_metrics = ["Doanh thu", "Tổng Chi phí", "Lợi nhuận Ròng"]
-                        
-                        # Metrics selection
-                        selected_metrics = st.multiselect(
-                            "Chọn các chỉ số để hiển thị",
-                            available_metrics,
-                            default=st.session_state.selected_metrics,
-                            key="metrics_multiselect"
-                        )
-                        
-                        # Update session state
-                        st.session_state.selected_metrics = selected_metrics
-                        
-                        # Filter chart data based on selected metrics
-                        if selected_metrics:
-                            filtered_chart_df = chart_df[chart_df["Loại"].isin(selected_metrics)]
+                        # Create chart based on chart type
+                        if chart_type == "Cột":
+                            # Create bar chart using Plotly
+                            fig = go.Figure()
                             
-                            # Define a consistent color palette (add more colors if needed)
-                            colors = {
-                                "Doanh thu": "#4CAF50",  # Green
-                                "Chi phí Nguyên liệu": "#F44336",  # Red
-                                "Chi phí Nhập hàng": "#FF5722",  # Deep Orange
-                                "Chi phí Nhân công": "#9C27B0",  # Purple
-                                "Chi phí Khác": "#3F51B5",  # Indigo
-                                "Chi phí Khấu hao": "#03A9F4",  # Light Blue
-                                "Chi phí Giảm giá": "#009688",  # Teal
-                                "Chi phí Marketing": "#FFC107",  # Amber
-                                "Tổng Chi phí": "#795548",  # Brown
-                                "Lợi nhuận Ròng": "#2196F3"  # Blue
-                            }
+                            for metric in selected_metrics:
+                                value = filtered_chart_df[filtered_chart_df["Loại"] == metric]["Giá trị"].values[0]
+                                fig.add_trace(go.Bar(
+                                    x=[metric],
+                                    y=[value],
+                                    name=metric,
+                                    marker_color=colors.get(metric, "#000000")
+                                ))
                             
-                            # Create chart based on chart type
-                            if chart_type == "Cột":
-                                # Create bar chart using Plotly
-                                fig = go.Figure()
-                                
-                                for metric in selected_metrics:
-                                    value = filtered_chart_df[filtered_chart_df["Loại"] == metric]["Giá trị"].values[0]
-                                    fig.add_trace(go.Bar(
-                                        x=[metric],
-                                        y=[value],
-                                        name=metric,
-                                        marker_color=colors.get(metric, "#000000")
-                                    ))
-                                
-                                # Update layout
-                                fig.update_layout(
-                                    title="Biểu đồ Doanh thu và Chi phí",
-                                    xaxis_title="Loại",
-                                    yaxis_title="Giá trị (VND)",
-                                    legend_title="Chỉ số",
-                                    bargap=0.3,
-                                    height=500
-                                )
-                                
-                                # Format y-axis to use comma separation for thousands
-                                fig.update_yaxes(tickformat=",")
-                                
-                                # Display the chart
-                                st.plotly_chart(fig, use_container_width=True)
-                                
-                            elif chart_type == "Đường":
-                                # For line chart, we need to handle differently as each metric is a single point
-                                # We'll create a dummy x-axis with evenly spaced points
-                                
-                                # Create line chart using Plotly
-                                fig = go.Figure()
-                                
-                                for i, metric in enumerate(selected_metrics):
-                                    value = filtered_chart_df[filtered_chart_df["Loại"] == metric]["Giá trị"].values[0]
-                                    
-                                    # Add line
-                                    fig.add_trace(go.Scatter(
-                                        x=[i],
-                                        y=[value],
-                                        mode='lines+markers',
-                                        name=metric,
-                                        line=dict(color=colors.get(metric, "#000000"), width=3),
-                                        marker=dict(color=colors.get(metric, "#000000"), size=10)
-                                    ))
-                                
-                                # Update layout
-                                fig.update_layout(
-                                    title="Biểu đồ Doanh thu và Chi phí",
-                                    xaxis_title="Loại",
-                                    yaxis_title="Giá trị (VND)",
-                                    legend_title="Chỉ số",
-                                    height=500
-                                )
-                                
-                                # Set x-axis to use the metric names instead of numbers
-                                fig.update_xaxes(
-                                    tickmode='array',
-                                    tickvals=list(range(len(selected_metrics))),
-                                    ticktext=selected_metrics
-                                )
-                                
-                                # Format y-axis to use comma separation for thousands
-                                fig.update_yaxes(tickformat=",")
-                                
-                                # Display the chart
-                                st.plotly_chart(fig, use_container_width=True)
-                            
-                            # Add a downloadable CSV option for the filtered chart data
-                            st.download_button(
-                                label="Tải dữ liệu xuống (CSV)",
-                                data=filtered_chart_df.to_csv(index=False).encode('utf-8'),
-                                file_name=f'bao_cao_doanh_thu_{start_date_str}_den_{end_date_str}.csv',
-                                mime='text/csv',
+                            # Update layout
+                            fig.update_layout(
+                                title="Biểu đồ Doanh thu và Chi phí",
+                                xaxis_title="Loại",
+                                yaxis_title="Giá trị (VND)",
+                                legend_title="Chỉ số",
+                                bargap=0.3,
+                                height=500
                             )
                             
-                            # Add a section to show the data table
-                            with st.expander("Xem bảng dữ liệu"):
-                                # Format the values in the DataFrame for display
-                                display_df = filtered_chart_df.copy()
-                                display_df['Giá trị'] = display_df['Giá trị'].apply(lambda x: f"{x:,.0f} VND")
-                                st.dataframe(display_df)
+                            # Format y-axis to use comma separation for thousands
+                            fig.update_yaxes(tickformat=",")
                             
-                            # Add a pie chart visualization option
-                            if st.checkbox("Hiển thị dạng biểu đồ tròn", key="show_pie_chart"):
-                                st.subheader("Biểu đồ tròn Chi phí")
-                                
-                                # Create a filtered dataframe for costs only (excluding revenue and profit)
-                                cost_categories = [metric for metric in selected_metrics if "Chi phí" in metric]
-                                
-                                if cost_categories:
-                                    cost_df = filtered_chart_df[filtered_chart_df["Loại"].isin(cost_categories)]
-                                    
-                                    # Create a pie chart for costs
-                                    fig = go.Figure(data=[go.Pie(
-                                        labels=cost_df["Loại"],
-                                        values=cost_df["Giá trị"],
-                                        hole=.3,
-                                        marker_colors=[colors.get(metric, "#000000") for metric in cost_df["Loại"]]
-                                    )])
-                                    
-                                    fig.update_layout(
-                                        title="Cơ cấu Chi phí",
-                                        height=500
-                                    )
-                                    
-                                    # Add percentage and value to hover information
-                                    fig.update_traces(
-                                        hoverinfo='label+percent+value',
-                                        textinfo='percent',
-                                        textfont_size=14
-                                    )
-                                    
-                                    st.plotly_chart(fig, use_container_width=True)
-                                else:
-                                    st.info("Vui lòng chọn ít nhất một loại chi phí để hiển thị biểu đồ tròn.")
+                            # Display the chart
+                            st.plotly_chart(fig, use_container_width=True)
                             
-                            # Add a time series analysis section if there are multiple dates in the data
-                            if len(filtered_income['date'].unique()) > 1 and st.checkbox("Phân tích theo thời gian", key="show_time_analysis"):
-                                st.subheader("Phân tích doanh thu theo thời gian")
+                        elif chart_type == "Đường":
+                            # For line chart, we need to handle differently as each metric is a single point
+                            # We'll create a dummy x-axis with evenly spaced points
+                            
+                            # Create line chart using Plotly
+                            fig = go.Figure()
+                            
+                            for i, metric in enumerate(selected_metrics):
+                                value = filtered_chart_df[filtered_chart_df["Loại"] == metric]["Giá trị"].values[0]
                                 
-                                # Group data by date
-                                time_df = filtered_income.groupby('date').agg({
-                                    'total_sales': 'sum',
-                                    'cost_of_goods': 'sum',
-                                    'profit': 'sum'
-                                }).reset_index()
+                                # Add line
+                                fig.add_trace(go.Scatter(
+                                    x=[i],
+                                    y=[value],
+                                    mode='lines+markers',
+                                    name=metric,
+                                    line=dict(color=colors.get(metric, "#000000"), width=3),
+                                    marker=dict(color=colors.get(metric, "#000000"), size=10)
+                                ))
+                            
+                            # Update layout
+                            fig.update_layout(
+                                title="Biểu đồ Doanh thu và Chi phí",
+                                xaxis_title="Loại",
+                                yaxis_title="Giá trị (VND)",
+                                legend_title="Chỉ số",
+                                height=500
+                            )
+                            
+                            # Set x-axis to use the metric names instead of numbers
+                            fig.update_xaxes(
+                                tickmode='array',
+                                tickvals=list(range(len(selected_metrics))),
+                                ticktext=selected_metrics
+                            )
+                            
+                            # Format y-axis to use comma separation for thousands
+                            fig.update_yaxes(tickformat=",")
+                            
+                            # Display the chart
+                            st.plotly_chart(fig, use_container_width=True)
+                        
+                        # Add a downloadable CSV option for the filtered chart data
+                        st.download_button(
+                            label="Tải dữ liệu xuống (CSV)",
+                            data=filtered_chart_df.to_csv(index=False).encode('utf-8'),
+                            file_name=f'bao_cao_doanh_thu_{start_date_str}_den_{end_date_str}.csv',
+                            mime='text/csv',
+                        )
+                        
+                        # Add a section to show the data table
+                        with st.expander("Xem bảng dữ liệu"):
+                            # Format the values in the DataFrame for display
+                            display_df = filtered_chart_df.copy()
+                            display_df['Giá trị'] = display_df['Giá trị'].apply(lambda x: f"{x:,.0f} VND")
+                            st.dataframe(display_df)
+                        
+                        # Add a pie chart visualization option
+                        if st.checkbox("Hiển thị dạng biểu đồ tròn", key="show_pie_chart"):
+                            st.subheader("Biểu đồ tròn Chi phí")
+                            
+                            # Create a filtered dataframe for costs only (excluding revenue and profit)
+                            cost_categories = [metric for metric in selected_metrics if "Chi phí" in metric]
+                            
+                            if cost_categories:
+                                cost_df = filtered_chart_df[filtered_chart_df["Loại"].isin(cost_categories)]
                                 
-                                # Sort by date
-                                time_df = time_df.sort_values('date')
+                                # Create a pie chart for costs
+                                fig = go.Figure(data=[go.Pie(
+                                    labels=cost_df["Loại"],
+                                    values=cost_df["Giá trị"],
+                                    hole=.3,
+                                    marker_colors=[colors.get(metric, "#000000") for metric in cost_df["Loại"]]
+                                )])
                                 
-                                # Create time series chart
+                                fig.update_layout(
+                                    title="Cơ cấu Chi phí",
+                                    height=500
+                                )
+                                
+                                # Add percentage and value to hover information
+                                fig.update_traces(
+                                    hoverinfo='label+percent+value',
+                                    textinfo='percent',
+                                    textfont_size=14
+                                )
+                                
+                                st.plotly_chart(fig, use_container_width=True)
+                            else:
+                                st.info("Vui lòng chọn ít nhất một loại chi phí để hiển thị biểu đồ tròn.")
+                        
+                        # Add a time series analysis section if there are multiple dates in the data
+                        if len(filtered_income['date'].unique()) > 1 and st.checkbox("Phân tích theo thời gian", key="show_time_analysis"):
+                            st.subheader("Phân tích doanh thu theo thời gian")
+                            
+                            # Group data by date
+                            time_df = filtered_income.groupby('date').agg({
+                                'total_sales': 'sum',
+                                'cost_of_goods': 'sum',
+                                'profit': 'sum'
+                            }).reset_index()
+                            
+                            # Sort by date
+                            time_df = time_df.sort_values('date')
+                            
+                            # Create time series chart
+                            fig = go.Figure()
+                            
+                            # Add traces
+                            fig.add_trace(go.Scatter(
+                                x=time_df['date'],
+                                y=time_df['total_sales'],
+                                mode='lines+markers',
+                                name='Doanh thu',
+                                line=dict(color=colors.get('Doanh thu', "#4CAF50"), width=3)
+                            ))
+                            
+                            fig.add_trace(go.Scatter(
+                                x=time_df['date'],
+                                y=time_df['cost_of_goods'],
+                                mode='lines+markers',
+                                name='Chi phí Nguyên liệu',
+                                line=dict(color=colors.get('Chi phí Nguyên liệu', "#F44336"), width=3)
+                            ))
+                            
+                            fig.add_trace(go.Scatter(
+                                x=time_df['date'],
+                                y=time_df['profit'],
+                                mode='lines+markers',
+                                name='Lợi nhuận',
+                                line=dict(color=colors.get('Lợi nhuận Ròng', "#2196F3"), width=3)
+                            ))
+                            
+                            # Update layout
+                            fig.update_layout(
+                                title='Doanh thu, Chi phí và Lợi nhuận theo thời gian',
+                                xaxis_title='Ngày',
+                                yaxis_title='Giá trị (VND)',
+                                height=500,
+                                legend_title="Chỉ số"
+                            )
+                            
+                            # Format y-axis to use comma separation for thousands
+                            fig.update_yaxes(tickformat=",")
+                            
+                            # Display the chart
+                            st.plotly_chart(fig, use_container_width=True)
+                            
+                            # Add a trend analysis if enough data points
+                            if len(time_df) >= 5:
+                                st.subheader("Phân tích xu hướng")
+                                
+                                # Add a column for moving average of revenue
+                                time_df['total_sales_ma3'] = time_df['total_sales'].rolling(window=3, min_periods=1).mean()
+                                
+                                # Create a trend analysis chart
                                 fig = go.Figure()
                                 
-                                # Add traces
+                                # Add raw data
                                 fig.add_trace(go.Scatter(
                                     x=time_df['date'],
                                     y=time_df['total_sales'],
                                     mode='lines+markers',
-                                    name='Doanh thu',
-                                    line=dict(color=colors.get('Doanh thu', "#4CAF50"), width=3)
+                                    name='Doanh thu thực tế',
+                                    line=dict(color="#4CAF50", width=2)
                                 ))
                                 
+                                # Add moving average
                                 fig.add_trace(go.Scatter(
                                     x=time_df['date'],
-                                    y=time_df['cost_of_goods'],
-                                    mode='lines+markers',
-                                    name='Chi phí Nguyên liệu',
-                                    line=dict(color=colors.get('Chi phí Nguyên liệu', "#F44336"), width=3)
-                                ))
-                                
-                                fig.add_trace(go.Scatter(
-                                    x=time_df['date'],
-                                    y=time_df['profit'],
-                                    mode='lines+markers',
-                                    name='Lợi nhuận',
-                                    line=dict(color=colors.get('Lợi nhuận Ròng', "#2196F3"), width=3)
+                                    y=time_df['total_sales_ma3'],
+                                    mode='lines',
+                                    name='Trung bình động 3 ngày',
+                                    line=dict(color="#FF9800", width=3, dash='dash')
                                 ))
                                 
                                 # Update layout
                                 fig.update_layout(
-                                    title='Doanh thu, Chi phí và Lợi nhuận theo thời gian',
+                                    title='Phân tích xu hướng Doanh thu',
                                     xaxis_title='Ngày',
-                                    yaxis_title='Giá trị (VND)',
-                                    height=500,
-                                    legend_title="Chỉ số"
+                                    yaxis_title='Doanh thu (VND)',
+                                    height=400,
+                                    legend_title="Dữ liệu"
                                 )
                                 
                                 # Format y-axis to use comma separation for thousands
@@ -2363,57 +2490,13 @@ elif tab_selection == "Theo dõi Doanh thu":
                                 
                                 # Display the chart
                                 st.plotly_chart(fig, use_container_width=True)
-                                
-                                # Add a trend analysis if enough data points
-                                if len(time_df) >= 5:
-                                    st.subheader("Phân tích xu hướng")
-                                    
-                                    # Add a column for moving average of revenue
-                                    time_df['total_sales_ma3'] = time_df['total_sales'].rolling(window=3, min_periods=1).mean()
-                                    
-                                    # Create a trend analysis chart
-                                    fig = go.Figure()
-                                    
-                                    # Add raw data
-                                    fig.add_trace(go.Scatter(
-                                        x=time_df['date'],
-                                        y=time_df['total_sales'],
-                                        mode='lines+markers',
-                                        name='Doanh thu thực tế',
-                                        line=dict(color="#4CAF50", width=2)
-                                    ))
-                                    
-                                    # Add moving average
-                                    fig.add_trace(go.Scatter(
-                                        x=time_df['date'],
-                                        y=time_df['total_sales_ma3'],
-                                        mode='lines',
-                                        name='Trung bình động 3 ngày',
-                                        line=dict(color="#FF9800", width=3, dash='dash')
-                                    ))
-                                    
-                                    # Update layout
-                                    fig.update_layout(
-                                        title='Phân tích xu hướng Doanh thu',
-                                        xaxis_title='Ngày',
-                                        yaxis_title='Doanh thu (VND)',
-                                        height=400,
-                                        legend_title="Dữ liệu"
-                                    )
-                                    
-                                    # Format y-axis to use comma separation for thousands
-                                    fig.update_yaxes(tickformat=",")
-                                    
-                                    # Display the chart
-                                    st.plotly_chart(fig, use_container_width=True)
-                except Exception as e:
-                    # Fallback if date parsing fails
-                    st.error(f"Lỗi khi xử lý dữ liệu: {str(e)}")
-                    st.info("Vui lòng kiểm tra dữ liệu doanh thu và chi phí.")
-            else:
-                st.info("Chưa có dữ liệu doanh thu. Hoàn thành đơn hàng để xem thông tin doanh thu.")
+            except Exception as e:
+                # Fallback if date parsing fails
+                st.error(f"Lỗi khi xử lý dữ liệu: {str(e)}")
+                st.info("Vui lòng kiểm tra dữ liệu doanh thu và chi phí.")
+        else:
+            st.info("Chưa có dữ liệu doanh thu. Hoàn thành đơn hàng để xem thông tin doanh thu.")
 
-    
     with income_tab2:
         st.subheader("Chi phí nhập Nguyên liệu")
         
@@ -5113,3 +5196,1198 @@ elif tab_selection == "Quản lý Dữ liệu":
         if st.button("Lưu lại tất cả dữ liệu"):
             save_all_data()
             st.success("Đã lưu lại tất cả dữ liệu thành công!")
+
+
+elif tab_selection == "Quản lý chi tiêu gia đình":
+    st.header("Quản lý chi tiêu gia đình")
+    
+    # Create three tabs
+    expense_tab1, expense_tab2, expense_tab3 = st.tabs(["Tổng quát", "Chi", "Thu"])
+    
+    with expense_tab1:
+        st.subheader("Tổng quan Chi tiêu Gia đình")
+        
+        # Time period selection
+        period_type = st.radio(
+            "Chọn khoảng thời gian",
+            ["Tháng", "Quý", "Năm", "Tùy chỉnh"],
+            horizontal=True,
+            key="expense_period_type"
+        )
+        
+        today = datetime.date.today()
+        
+        if period_type == "Tháng":
+            # Month selection
+            selected_month = st.selectbox(
+                "Chọn tháng",
+                options=range(1, 13),
+                index=today.month - 1,
+                format_func=lambda x: f"Tháng {x}/{today.year}",
+                key="expense_month"
+            )
+            selected_year = today.year
+            
+            # Calculate start and end dates
+            start_date = datetime.date(selected_year, selected_month, 1)
+            if selected_month == 12:
+                end_date = datetime.date(selected_year + 1, 1, 1) - datetime.timedelta(days=1)
+            else:
+                end_date = datetime.date(selected_year, selected_month + 1, 1) - datetime.timedelta(days=1)
+            
+        elif period_type == "Quý":
+            # Quarter selection
+            current_quarter = (today.month - 1) // 3 + 1
+            selected_quarter = st.selectbox(
+                "Chọn quý",
+                options=range(1, 5),
+                index=current_quarter - 1,
+                format_func=lambda x: f"Quý {x}/{today.year}",
+                key="expense_quarter"
+            )
+            selected_year = today.year
+            
+            # Calculate start and end dates
+            start_month = (selected_quarter - 1) * 3 + 1
+            start_date = datetime.date(selected_year, start_month, 1)
+            if start_month + 3 > 12:
+                end_date = datetime.date(selected_year + 1, (start_month + 3) % 12, 1) - datetime.timedelta(days=1)
+            else:
+                end_date = datetime.date(selected_year, start_month + 3, 1) - datetime.timedelta(days=1)
+            
+        elif period_type == "Năm":
+            # Year selection
+            selected_year = st.selectbox(
+                "Chọn năm",
+                options=range(today.year - 5, today.year + 1),
+                index=5,  # Default to current year
+                key="expense_year"
+            )
+            
+            # Calculate start and end dates
+            start_date = datetime.date(selected_year, 1, 1)
+            end_date = datetime.date(selected_year, 12, 31)
+            
+        else:  # Custom period
+            col1, col2 = st.columns(2)
+            with col1:
+                start_date = st.date_input(
+                    "Từ ngày",
+                    value=datetime.date(today.year, today.month, 1),
+                    key="expense_start_date"
+                )
+            with col2:
+                end_date = st.date_input(
+                    "Đến ngày",
+                    value=today,
+                    min_value=start_date,
+                    key="expense_end_date"
+                )
+        
+        # Convert dates to string format for filtering
+        start_date_str = start_date.strftime("%Y-%m-%d")
+        end_date_str = end_date.strftime("%Y-%m-%d")
+        
+        # Filter expenses based on date range
+        if not st.session_state.family_expenses.empty:
+            filtered_expenses = st.session_state.family_expenses[
+                (st.session_state.family_expenses['date'] >= start_date_str) &
+                (st.session_state.family_expenses['date'] <= end_date_str)
+            ]
+            
+        # Get unique payment methods from the data
+            unique_payment_methods = ["Tất cả"] + sorted(filtered_expenses['payment_method'].unique().tolist())
+            
+            # Add new filter by payment method
+            payment_method_filter = st.selectbox(
+                "Lọc theo phương thức thanh toán",
+                options=unique_payment_methods,
+                index=0,  # Default to "Tất cả"
+                key="payment_method_filter"
+            )
+            
+            # Apply the payment method filter
+            if payment_method_filter != "Tất cả":
+                filtered_expenses = filtered_expenses[filtered_expenses['payment_method'] == payment_method_filter]
+            
+            # Separate income and expenses
+            income_data = filtered_expenses[filtered_expenses['type'] == 'income']
+            expense_data = filtered_expenses[filtered_expenses['type'] == 'expense']
+            
+            # Calculate totals
+            total_income = income_data['amount'].sum() if not income_data.empty else 0
+            total_expense = expense_data['amount'].sum() if not expense_data.empty else 0
+            balance = total_income - total_expense
+            
+            # Display summary metrics
+            st.write(f"### Khoảng thời gian: {start_date_str} đến {end_date_str}")
+            
+            # Show what filter is applied
+            if payment_method_filter != "Tất cả":
+                st.write(f"**Bộ lọc phương thức thanh toán:** {payment_method_filter}")
+            
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("Tổng Thu", f"{total_income:,.0f} VND")
+            with col2:
+                st.metric("Tổng Chi", f"{total_expense:,.0f} VND")
+            with col3:
+                st.metric("Còn lại", f"{balance:,.0f} VND", 
+                        delta=f"{balance:,.0f} VND", 
+                        delta_color="normal" if balance >= 0 else "inverse")
+                         
+            # Display expense and income tables side by side
+            col1, col2 = st.columns(2)
+            
+            # Function to format and display transactions
+            def display_transactions(data, title, column):
+                with column:
+                    st.write(f"### {title}")
+                    if not data.empty:
+                        # Get category names
+                        if not st.session_state.expense_categories.empty:
+                            # Create a dictionary of category_id to name
+                            category_dict = dict(zip(
+                                st.session_state.expense_categories['category_id'],
+                                st.session_state.expense_categories['name']
+                            ))
+                            
+                            # Replace category_id with name
+                            data_display = data.copy()
+                            data_display['category'] = data_display['category'].map(
+                                lambda x: category_dict.get(x, x)
+                            )
+                            
+                            # Format for display
+                            display_df = pd.DataFrame({
+                                'Ngày': data_display['date'],
+                                'Danh mục': data_display['category'],
+                                'Nội dung': data_display['description'],
+                                'Số tiền': data_display['amount'].apply(lambda x: f"{x:,.0f} VND"),
+                                'Thanh toán': data_display['payment_method']
+                            })
+                            
+                            st.dataframe(display_df, use_container_width=True)
+                        else:
+                            st.info(f"Không có dữ liệu danh mục {title.lower()}.")
+                    else:
+                        st.info(f"Không có dữ liệu {title.lower()} trong khoảng thời gian này.")
+            
+            # Display both tables
+            display_transactions(expense_data, "Chi tiêu", col1)
+            display_transactions(income_data, "Thu nhập", col2)
+            
+            # Add expense category management
+            st.write("### Quản lý Danh mục")
+            category_tab1, category_tab2 = st.columns(2)
+            
+            with category_tab1:
+                st.write("#### Danh mục Chi")
+                expense_categories = st.session_state.expense_categories[
+                    st.session_state.expense_categories['type'] == 'expense'
+                ]
+                
+                if not expense_categories.empty:
+                    st.dataframe(pd.DataFrame({
+                        'ID': expense_categories['category_id'],
+                        'Tên danh mục': expense_categories['name']
+                    }))
+                else:
+                    st.info("Chưa có danh mục chi.")
+            
+            with category_tab2:
+                st.write("#### Danh mục Thu")
+                income_categories = st.session_state.expense_categories[
+                    st.session_state.expense_categories['type'] == 'income'
+                ]
+                
+                if not income_categories.empty:
+                    st.dataframe(pd.DataFrame({
+                        'ID': income_categories['category_id'],
+                        'Tên danh mục': income_categories['name']
+                    }))
+                else:
+                    st.info("Chưa có danh mục thu.")
+            
+            # Add button to add new categories
+            st.write("#### Thêm Danh mục Mới")
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                # Generate a default category ID
+                default_category_id = ""
+                if not st.session_state.expense_categories.empty:
+                    # Find latest ID prefix by type
+                    income_ids = income_categories['category_id'].tolist() if not income_categories.empty else []
+                    expense_ids = expense_categories['category_id'].tolist() if not expense_categories.empty else []
+                    
+                    # Default to expense category
+                    new_category_type = st.radio(
+                        "Loại danh mục",
+                        ["Chi", "Thu"],
+                        horizontal=True,
+                        key="new_category_type"
+                    )
+                    
+                    if new_category_type == "Chi":
+                        prefix = "EXP"
+                        category_type = "expense"
+                        ids = expense_ids
+                    else:
+                        prefix = "INC"
+                        category_type = "income"
+                        ids = income_ids
+                    
+                    # Extract numeric parts from existing IDs
+                    numeric_parts = []
+                    for id in ids:
+                        if id.startswith(prefix) and id[3:].isdigit():
+                            numeric_parts.append(int(id[3:]))
+                    
+                    if numeric_parts:
+                        # Suggest next ID number
+                        next_id = max(numeric_parts) + 1
+                        default_category_id = f"{prefix}{next_id:03d}"
+                    else:
+                        default_category_id = f"{prefix}001"
+                else:
+                    new_category_type = st.radio(
+                        "Loại danh mục",
+                        ["Chi", "Thu"],
+                        horizontal=True,
+                        key="new_category_type"
+                    )
+                    if new_category_type == "Chi":
+                        category_type = "expense"
+                        default_category_id = "EXP001"
+                    else:
+                        category_type = "income"
+                        default_category_id = "INC001"
+            
+            with col2:
+                new_category_id = st.text_input("ID Danh mục", value=default_category_id, key="new_category_id")
+            
+            with col3:
+                new_category_name = st.text_input("Tên danh mục", key="new_category_name")
+            
+            if st.button("Thêm Danh mục", key="add_category_btn"):
+                if not new_category_id or not new_category_name:
+                    st.error("Vui lòng nhập đầy đủ thông tin danh mục")
+                elif new_category_id in st.session_state.expense_categories['category_id'].values:
+                    st.error(f"ID danh mục {new_category_id} đã tồn tại")
+                else:
+                    # Add new category
+                    new_category = pd.DataFrame({
+                        'category_id': [new_category_id],
+                        'name': [new_category_name],
+                        'type': [category_type]
+                    })
+                    
+                    st.session_state.expense_categories = pd.concat(
+                        [st.session_state.expense_categories, new_category], 
+                        ignore_index=True
+                    )
+                    
+                    # Save categories
+                    save_dataframe(st.session_state.expense_categories, "expense_categories.csv")
+                    
+                    st.success(f"Đã thêm danh mục {new_category_name} thành công!")
+                    st.rerun()  # Reload the page to show the new category
+            
+            # Add visualization
+            if not filtered_expenses.empty:
+                st.write("### Biểu đồ Chi tiêu")
+                
+                # Choose visualization type
+                viz_type = st.radio(
+                    "Loại biểu đồ",
+                    ["Biểu đồ cột", "Biểu đồ tròn", "Biểu đồ đường theo thời gian"],
+                    horizontal=True,
+                    key="expense_viz_type"
+                )
+                
+                if viz_type == "Biểu đồ cột":
+                    # Group by category and calculate sum for expenses and income
+                    if not expense_data.empty:
+                        expense_by_category = expense_data.groupby('category')['amount'].sum().reset_index()
+                        
+                        # Get category names
+                        if not st.session_state.expense_categories.empty:
+                            category_dict = dict(zip(
+                                st.session_state.expense_categories['category_id'],
+                                st.session_state.expense_categories['name']
+                            ))
+                            
+                            expense_by_category['category'] = expense_by_category['category'].map(
+                                lambda x: category_dict.get(x, x)
+                            )
+                        
+                        # Sort by amount descending
+                        expense_by_category = expense_by_category.sort_values('amount', ascending=False)
+                        
+                        # Create bar chart using Plotly
+                        fig = go.Figure()
+                        fig.add_trace(go.Bar(
+                            x=expense_by_category['category'],
+                            y=expense_by_category['amount'],
+                            name='Chi tiêu',
+                            marker_color='#FF6B6B'
+                        ))
+                        
+                        fig.update_layout(
+                            title="Chi tiêu theo Danh mục",
+                            xaxis_title="Danh mục",
+                            yaxis_title="Số tiền (VND)",
+                            height=500
+                        )
+                        
+                        # Format y-axis to use comma separation for thousands
+                        fig.update_yaxes(tickformat=",")
+                        
+                        # Display the chart
+                        st.plotly_chart(fig, use_container_width=True)
+                    
+                    # Create similar chart for income
+                    if not income_data.empty:
+                        income_by_category = income_data.groupby('category')['amount'].sum().reset_index()
+                        
+                        # Get category names
+                        if not st.session_state.expense_categories.empty:
+                            category_dict = dict(zip(
+                                st.session_state.expense_categories['category_id'],
+                                st.session_state.expense_categories['name']
+                            ))
+                            
+                            income_by_category['category'] = income_by_category['category'].map(
+                                lambda x: category_dict.get(x, x)
+                            )
+                        
+                        # Sort by amount descending
+                        income_by_category = income_by_category.sort_values('amount', ascending=False)
+                        
+                        # Create bar chart for income
+                        fig = go.Figure()
+                        fig.add_trace(go.Bar(
+                            x=income_by_category['category'],
+                            y=income_by_category['amount'],
+                            name='Thu nhập',
+                            marker_color='#4CAF50'
+                        ))
+                        
+                        fig.update_layout(
+                            title="Thu nhập theo Danh mục",
+                            xaxis_title="Danh mục",
+                            yaxis_title="Số tiền (VND)",
+                            height=500
+                        )
+                        
+                        # Format y-axis to use comma separation for thousands
+                        fig.update_yaxes(tickformat=",")
+                        
+                        # Display the chart
+                        st.plotly_chart(fig, use_container_width=True)
+                
+                elif viz_type == "Biểu đồ tròn":
+                    # Create two columns for pie charts
+                    pie_col1, pie_col2 = st.columns(2)
+                    
+                    # Expense pie chart
+                    with pie_col1:
+                        if not expense_data.empty:
+                            expense_by_category = expense_data.groupby('category')['amount'].sum().reset_index()
+                            
+                            # Get category names
+                            if not st.session_state.expense_categories.empty:
+                                category_dict = dict(zip(
+                                    st.session_state.expense_categories['category_id'],
+                                    st.session_state.expense_categories['name']
+                                ))
+                                
+                                expense_by_category['category'] = expense_by_category['category'].map(
+                                    lambda x: category_dict.get(x, x)
+                                )
+                            
+                            # Create pie chart
+                            fig = go.Figure(data=[go.Pie(
+                                labels=expense_by_category['category'],
+                                values=expense_by_category['amount'],
+                                hole=.3,
+                                marker_colors=['#FF6B6B', '#FF8E72', '#FFAF87', '#FFC785', '#FFC178', '#FFB367', '#FF9B57']
+                            )])
+                            
+                            fig.update_layout(
+                                title="Chi tiêu theo Danh mục",
+                                height=500
+                            )
+                            
+                            # Add percentage and value to hover information
+                            fig.update_traces(
+                                hoverinfo='label+percent+value',
+                                textinfo='percent',
+                                textfont_size=14,
+                                texttemplate='%{percent:.1%}'
+                            )
+                            
+                            # Display the chart
+                            st.plotly_chart(fig, use_container_width=True)
+                        else:
+                            st.info("Không có dữ liệu chi tiêu để hiển thị biểu đồ.")
+                    
+                    # Income pie chart
+                    with pie_col2:
+                        if not income_data.empty:
+                            income_by_category = income_data.groupby('category')['amount'].sum().reset_index()
+                            
+                            # Get category names
+                            if not st.session_state.expense_categories.empty:
+                                category_dict = dict(zip(
+                                    st.session_state.expense_categories['category_id'],
+                                    st.session_state.expense_categories['name']
+                                ))
+                                
+                                income_by_category['category'] = income_by_category['category'].map(
+                                    lambda x: category_dict.get(x, x)
+                                )
+                            
+                            # Create pie chart
+                            fig = go.Figure(data=[go.Pie(
+                                labels=income_by_category['category'],
+                                values=income_by_category['amount'],
+                                hole=.3,
+                                marker_colors=['#4CAF50', '#66BB6A', '#81C784', '#A5D6A7', '#C8E6C9']
+                            )])
+                            
+                            fig.update_layout(
+                                title="Thu nhập theo Danh mục",
+                                height=500
+                            )
+                            
+                            # Add percentage and value to hover information
+                            fig.update_traces(
+                                hoverinfo='label+percent+value',
+                                textinfo='percent',
+                                textfont_size=14,
+                                texttemplate='%{percent:.1%}'
+                            )
+                            
+                            # Display the chart
+                            st.plotly_chart(fig, use_container_width=True)
+                        else:
+                            st.info("Không có dữ liệu thu nhập để hiển thị biểu đồ.")
+                
+                else:  # Time series chart
+                    # Prepare data
+                    if not filtered_expenses.empty:
+                        # Convert date to datetime
+                        filtered_expenses['date_obj'] = pd.to_datetime(filtered_expenses['date'])
+                        
+                        # Group by date
+                        daily_income = income_data.groupby('date')['amount'].sum().reset_index() if not income_data.empty else pd.DataFrame(columns=['date', 'amount'])
+                        daily_expense = expense_data.groupby('date')['amount'].sum().reset_index() if not expense_data.empty else pd.DataFrame(columns=['date', 'amount'])
+                        
+                        # Convert to datetime for proper sorting
+                        if not daily_income.empty:
+                            daily_income['date_obj'] = pd.to_datetime(daily_income['date'])
+                            daily_income = daily_income.sort_values('date_obj')
+                        
+                        if not daily_expense.empty:
+                            daily_expense['date_obj'] = pd.to_datetime(daily_expense['date'])
+                            daily_expense = daily_expense.sort_values('date_obj')
+                        
+                        # Create time series chart using Plotly
+                        fig = go.Figure()
+                        
+                        if not daily_income.empty:
+                            fig.add_trace(go.Scatter(
+                                x=daily_income['date_obj'],
+                                y=daily_income['amount'],
+                                mode='lines+markers',
+                                name='Thu nhập',
+                                line=dict(color='#4CAF50', width=3)
+                            ))
+                        
+                        if not daily_expense.empty:
+                            fig.add_trace(go.Scatter(
+                                x=daily_expense['date_obj'],
+                                y=daily_expense['amount'],
+                                mode='lines+markers',
+                                name='Chi tiêu',
+                                line=dict(color='#FF6B6B', width=3)
+                            ))
+                        
+                        fig.update_layout(
+                            title="Thu Chi theo Thời gian",
+                            xaxis_title="Ngày",
+                            yaxis_title="Số tiền (VND)",
+                            height=500,
+                            legend_title="Loại"
+                        )
+                        
+                        # Format y-axis to use comma separation for thousands
+                        fig.update_yaxes(tickformat=",")
+                        
+                        # Display the chart
+                        st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info("Chưa có dữ liệu chi tiêu. Vui lòng thêm các khoản thu chi trong tab 'Chi' và 'Thu'.")
+            
+            # Still show category management even when there's no transaction data
+            st.write("### Quản lý Danh mục")
+            category_tab1, category_tab2 = st.columns(2)
+            
+            with category_tab1:
+                st.write("#### Danh mục Chi")
+                expense_categories = st.session_state.expense_categories[
+                    st.session_state.expense_categories['type'] == 'expense'
+                ]
+                
+                if not expense_categories.empty:
+                    st.dataframe(pd.DataFrame({
+                        'ID': expense_categories['category_id'],
+                        'Tên danh mục': expense_categories['name']
+                    }))
+                else:
+                    st.info("Chưa có danh mục chi.")
+            
+            with category_tab2:
+                st.write("#### Danh mục Thu")
+                income_categories = st.session_state.expense_categories[
+                    st.session_state.expense_categories['type'] == 'income'
+                ]
+                
+                if not income_categories.empty:
+                    st.dataframe(pd.DataFrame({
+                        'ID': income_categories['category_id'],
+                        'Tên danh mục': income_categories['name']
+                    }))
+                else:
+                    st.info("Chưa có danh mục thu.")
+            
+            # Add button to add new categories
+            st.write("#### Thêm Danh mục Mới")
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                # Generate a default category ID
+                default_category_id = ""
+                if not st.session_state.expense_categories.empty:
+                    # Find latest ID prefix by type
+                    income_ids = income_categories['category_id'].tolist() if not income_categories.empty else []
+                    expense_ids = expense_categories['category_id'].tolist() if not expense_categories.empty else []
+                    
+                    # Default to expense category
+                    new_category_type = st.radio(
+                        "Loại danh mục",
+                        ["Chi", "Thu"],
+                        horizontal=True,
+                        key="new_category_type"
+                    )
+                    
+                    if new_category_type == "Chi":
+                        prefix = "EXP"
+                        category_type = "expense"
+                        ids = expense_ids
+                    else:
+                        prefix = "INC"
+                        category_type = "income"
+                        ids = income_ids
+                    
+                    # Extract numeric parts from existing IDs
+                    numeric_parts = []
+                    for id in ids:
+                        if id.startswith(prefix) and id[3:].isdigit():
+                            numeric_parts.append(int(id[3:]))
+                    
+                    if numeric_parts:
+                        # Suggest next ID number
+                        next_id = max(numeric_parts) + 1
+                        default_category_id = f"{prefix}{next_id:03d}"
+                    else:
+                        default_category_id = f"{prefix}001"
+                else:
+                    new_category_type = st.radio(
+                        "Loại danh mục",
+                        ["Chi", "Thu"],
+                        horizontal=True,
+                        key="new_category_type"
+                    )
+                    if new_category_type == "Chi":
+                        category_type = "expense"
+                        default_category_id = "EXP001"
+                    else:
+                        category_type = "income"
+                        default_category_id = "INC001"
+            
+            with col2:
+                new_category_id = st.text_input("ID Danh mục", value=default_category_id, key="new_category_id")
+            
+            with col3:
+                new_category_name = st.text_input("Tên danh mục", key="new_category_name")
+            
+            if st.button("Thêm Danh mục", key="add_category_btn"):
+                if not new_category_id or not new_category_name:
+                    st.error("Vui lòng nhập đầy đủ thông tin danh mục")
+                elif new_category_id in st.session_state.expense_categories['category_id'].values:
+                    st.error(f"ID danh mục {new_category_id} đã tồn tại")
+                else:
+                    # Add new category
+                    new_category = pd.DataFrame({
+                        'category_id': [new_category_id],
+                        'name': [new_category_name],
+                        'type': [category_type]
+                    })
+                    
+                    st.session_state.expense_categories = pd.concat(
+                        [st.session_state.expense_categories, new_category], 
+                        ignore_index=True
+                    )
+                    
+                    # Save categories
+                    save_dataframe(st.session_state.expense_categories, "expense_categories.csv")
+                    
+                    st.success(f"Đã thêm danh mục {new_category_name} thành công!")
+                    st.rerun()  # Reload the page to show the new category
+        
+    with expense_tab2:
+        st.subheader("Quản lý Chi tiêu")
+        
+        # Add form to create new expense
+        st.write("### Thêm khoản Chi mới")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            # Date of expense
+            expense_date = st.date_input(
+                "Ngày chi", 
+                value=datetime.date.today(),
+                key="expense_date"
+            ).strftime("%Y-%m-%d")
+            
+            # Expense category
+            expense_categories = st.session_state.expense_categories[
+                st.session_state.expense_categories['type'] == 'expense'
+            ]
+            
+            if not expense_categories.empty:
+                category_options = []
+                for _, category in expense_categories.iterrows():
+                    category_options.append(f"{category['category_id']} - {category['name']}")
+                
+                selected_category = st.selectbox(
+                    "Danh mục chi",
+                    options=category_options,
+                    key="expense_category"
+                )
+                
+                # Extract category_id from selection
+                expense_category_id = selected_category.split(' - ')[0] if selected_category else ""
+            else:
+                st.warning("Chưa có danh mục chi. Vui lòng thêm danh mục trong tab 'Tổng quát'.")
+                expense_category_id = ""
+        
+        with col2:
+            # Payment method
+            payment_method = st.selectbox(
+                "Phương thức thanh toán",
+                options=["Tiền mặt", "Thẻ Visa", "Chuyển khoản", "Ví điện tử", "Khác"],
+                key="expense_payment_method"
+            )
+            
+            # Amount
+            expense_amount = st.number_input(
+                "Số tiền (VND)", 
+                min_value=0, 
+                value=0, 
+                step=10000,
+                key="expense_amount"
+            )
+        
+        # Description
+        expense_description = st.text_area(
+            "Mô tả chi tiết",
+            key="expense_description"
+        )
+        
+        # Add button to save expense
+        if st.button("Lưu khoản Chi", key="save_expense_btn"):
+            if not expense_category_id:
+                st.error("Vui lòng chọn danh mục chi")
+            elif expense_amount <= 0:
+                st.error("Vui lòng nhập số tiền hợp lệ")
+            else:
+                # Generate unique transaction ID
+                transaction_id = f"TRX-{uuid.uuid4().hex[:8].upper()}"
+                
+                # Create new expense
+                new_expense = pd.DataFrame({
+                    'transaction_id': [transaction_id],
+                    'date': [expense_date],
+                    'category': [expense_category_id],
+                    'description': [expense_description],
+                    'amount': [expense_amount],
+                    'payment_method': [payment_method],
+                    'type': ['expense']
+                })
+                
+                # Add to existing expenses
+                st.session_state.family_expenses = pd.concat(
+                    [st.session_state.family_expenses, new_expense],
+                    ignore_index=True
+                )
+                
+                # Save family expenses
+                save_dataframe(st.session_state.family_expenses, "family_expenses.csv")
+                
+                st.success(f"Đã lưu khoản chi {expense_amount:,.0f} VND thành công!")
+                st.rerun()  # Reload to update the display
+        
+        # Display existing expenses
+        st.write("### Khoản Chi đã lưu")
+        
+        if not st.session_state.family_expenses.empty:
+            # Filter only expense type records
+            expenses = st.session_state.family_expenses[
+                st.session_state.family_expenses['type'] == 'expense'
+            ].sort_values('date', ascending=False)
+            
+            if not expenses.empty:
+                # Get category names
+                if not st.session_state.expense_categories.empty:
+                    # Create a dictionary of category_id to name
+                    category_dict = dict(zip(
+                        st.session_state.expense_categories['category_id'],
+                        st.session_state.expense_categories['name']
+                    ))
+                    
+                    # Format for display
+                    expenses_display = expenses.copy()
+                    expenses_display['category_name'] = expenses_display['category'].map(
+                        lambda x: category_dict.get(x, x)
+                    )
+                    
+                    display_expenses = pd.DataFrame({
+                        'Mã giao dịch': expenses_display['transaction_id'],
+                        'Ngày': expenses_display['date'],
+                        'Danh mục': expenses_display['category_name'],
+                        'Mô tả': expenses_display['description'],
+                        'Số tiền': expenses_display['amount'].apply(lambda x: f"{x:,.0f} VND"),
+                        'Thanh toán': expenses_display['payment_method']
+                    })
+                    
+                    st.dataframe(display_expenses, use_container_width=True)
+                else:
+                    st.dataframe(expenses[['date', 'category', 'description', 'amount', 'payment_method']])
+                
+                # Add edit functionality
+                st.write("### Chỉnh sửa khoản Chi")
+                
+                # Create expense options for selection
+                expense_options = []
+                for _, expense in expenses.iterrows():
+                    category_name = category_dict.get(expense['category'], expense['category']) if 'category_dict' in locals() else expense['category']
+                    expense_options.append(f"{expense['transaction_id']} - {expense['date']} - {category_name} - {expense['amount']:,.0f} VND")
+                
+                selected_expense = st.selectbox(
+                    "Chọn khoản chi để chỉnh sửa",
+                    options=expense_options,
+                    key="edit_expense_select"
+                )
+                
+                if selected_expense:
+                    # Extract transaction_id from selection
+                    selected_transaction_id = selected_expense.split(' - ')[0]
+                    
+                    # Find the expense data
+                    expense_data = expenses[expenses['transaction_id'] == selected_transaction_id]
+                    
+                    if not expense_data.empty:
+                        expense_idx = expense_data.index[0]
+                        expense_info = expense_data.iloc[0]
+                        
+                        st.write("#### Thông tin hiện tại")
+                        st.write(f"Ngày: {expense_info['date']}")
+                        st.write(f"Danh mục: {category_dict.get(expense_info['category'], expense_info['category']) if 'category_dict' in locals() else expense_info['category']}")
+                        st.write(f"Mô tả: {expense_info['description']}")
+                        st.write(f"Số tiền: {expense_info['amount']:,.0f} VND")
+                        st.write(f"Thanh toán: {expense_info['payment_method']}")
+                        
+                        st.write("#### Cập nhật thông tin")
+                        
+                        # Edit form
+                        edit_col1, edit_col2 = st.columns(2)
+                        
+                        with edit_col1:
+                            # Convert string date to datetime.date
+                            current_date = datetime.datetime.strptime(expense_info['date'], "%Y-%m-%d").date()
+                            
+                            # Date of expense
+                            edit_date = st.date_input(
+                                "Ngày chi", 
+                                value=current_date,
+                                key="edit_expense_date"
+                            ).strftime("%Y-%m-%d")
+                            
+                            # Expense category
+                            if not expense_categories.empty:
+                                # Find current category index
+                                category_options = []
+                                selected_index = 0
+                                
+                                for i, (_, category) in enumerate(expense_categories.iterrows()):
+                                    category_options.append(f"{category['category_id']} - {category['name']}")
+                                    if category['category_id'] == expense_info['category']:
+                                        selected_index = i
+                                
+                                edit_category = st.selectbox(
+                                    "Danh mục chi",
+                                    options=category_options,
+                                    index=selected_index,
+                                    key="edit_expense_category"
+                                )
+                                
+                                # Extract category_id from selection
+                                edit_category_id = edit_category.split(' - ')[0] if edit_category else ""
+                            else:
+                                st.warning("Chưa có danh mục chi.")
+                                edit_category_id = expense_info['category']
+                        
+                        with edit_col2:
+                            # Payment method
+                            payment_options = ["Tiền mặt", "Thẻ Visa", "Chuyển khoản", "Ví điện tử", "Khác"]
+                            payment_index = payment_options.index(expense_info['payment_method']) if expense_info['payment_method'] in payment_options else 0
+                            
+                            edit_payment = st.selectbox(
+                                "Phương thức thanh toán",
+                                options=payment_options,
+                                index=payment_index,
+                                key="edit_expense_payment"
+                            )
+                            
+                            # Amount
+                            edit_amount = st.number_input(
+                                "Số tiền (VND)", 
+                                min_value=0, 
+                                value=int(expense_info['amount']), 
+                                step=10000,
+                                key="edit_expense_amount"
+                            )
+                        
+                        # Description
+                        edit_description = st.text_area(
+                            "Mô tả chi tiết",
+                            value=expense_info['description'],
+                            key="edit_expense_description"
+                        )
+                        
+                        # Update and Delete buttons
+                        col1, col2 = st.columns(2)
+                        
+                        with col1:
+                            if st.button("Cập nhật", key="update_expense_btn"):
+                                if not edit_category_id:
+                                    st.error("Vui lòng chọn danh mục chi")
+                                elif edit_amount <= 0:
+                                    st.error("Vui lòng nhập số tiền hợp lệ")
+                                else:
+                                    # Update expense
+                                    st.session_state.family_expenses.at[expense_idx, 'date'] = edit_date
+                                    st.session_state.family_expenses.at[expense_idx, 'category'] = edit_category_id
+                                    st.session_state.family_expenses.at[expense_idx, 'description'] = edit_description
+                                    st.session_state.family_expenses.at[expense_idx, 'amount'] = edit_amount
+                                    st.session_state.family_expenses.at[expense_idx, 'payment_method'] = edit_payment
+                                    
+                                    # Save family expenses
+                                    save_dataframe(st.session_state.family_expenses, "family_expenses.csv")
+                                    
+                                    st.success(f"Đã cập nhật khoản chi thành công!")
+                                    st.rerun()  # Reload to update the display
+                        
+                        with col2:
+                            if st.button("Xóa", key="delete_expense_btn"):
+                                # Delete expense
+                                st.session_state.family_expenses = st.session_state.family_expenses[
+                                    st.session_state.family_expenses['transaction_id'] != selected_transaction_id
+                                ]
+                                
+                                # Save family expenses
+                                save_dataframe(st.session_state.family_expenses, "family_expenses.csv")
+                                
+                                st.success(f"Đã xóa khoản chi thành công!")
+                                st.rerun()  # Reload to update the display
+            else:
+                st.info("Chưa có khoản chi nào được lưu.")
+        else:
+            st.info("Chưa có khoản chi nào được lưu.")
+    
+    with expense_tab3:
+        st.subheader("Quản lý Thu nhập")
+        
+        # Add form to create new income
+        st.write("### Thêm khoản Thu mới")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            # Date of income
+            income_date = st.date_input(
+                "Ngày thu", 
+                value=datetime.date.today(),
+                key="income_date"
+            ).strftime("%Y-%m-%d")
+            
+            # Income category
+            income_categories = st.session_state.expense_categories[
+                st.session_state.expense_categories['type'] == 'income'
+            ]
+            
+            if not income_categories.empty:
+                category_options = []
+                for _, category in income_categories.iterrows():
+                    category_options.append(f"{category['category_id']} - {category['name']}")
+                
+                selected_category = st.selectbox(
+                    "Danh mục thu",
+                    options=category_options,
+                    key="income_category"
+                )
+                
+                # Extract category_id from selection
+                income_category_id = selected_category.split(' - ')[0] if selected_category else ""
+            else:
+                st.warning("Chưa có danh mục thu. Vui lòng thêm danh mục trong tab 'Tổng quát'.")
+                income_category_id = ""
+        
+        with col2:
+            # Payment method
+            payment_method = st.selectbox(
+                "Phương thức thanh toán",
+                options=["Tiền mặt", "Chuyển khoản", "Thẻ Visa", "Ví điện tử", "Khác"],
+                key="income_payment_method"
+            )
+            
+            # Amount
+            income_amount = st.number_input(
+                "Số tiền (VND)", 
+                min_value=0, 
+                value=0, 
+                step=10000,
+                key="income_amount"
+            )
+        
+        # Description
+        income_description = st.text_area(
+            "Mô tả chi tiết",
+            key="income_description"
+        )
+        
+        # Add button to save income
+        if st.button("Lưu khoản Thu", key="save_income_btn"):
+            if not income_category_id:
+                st.error("Vui lòng chọn danh mục thu")
+            elif income_amount <= 0:
+                st.error("Vui lòng nhập số tiền hợp lệ")
+            else:
+                # Generate unique transaction ID
+                transaction_id = f"TRX-{uuid.uuid4().hex[:8].upper()}"
+                
+                # Create new income
+                new_income = pd.DataFrame({
+                    'transaction_id': [transaction_id],
+                    'date': [income_date],
+                    'category': [income_category_id],
+                    'description': [income_description],
+                    'amount': [income_amount],
+                    'payment_method': [payment_method],
+                    'type': ['income']
+                })
+                
+                # Add to existing expenses
+                st.session_state.family_expenses = pd.concat(
+                    [st.session_state.family_expenses, new_income],
+                    ignore_index=True
+                )
+                
+                # Save family expenses
+                save_dataframe(st.session_state.family_expenses, "family_expenses.csv")
+                
+                st.success(f"Đã lưu khoản thu {income_amount:,.0f} VND thành công!")
+                st.rerun()  # Reload to update the display
+        
+        # Display existing income
+        st.write("### Khoản Thu đã lưu")
+        
+        if not st.session_state.family_expenses.empty:
+            # Filter only income type records
+            income = st.session_state.family_expenses[
+                st.session_state.family_expenses['type'] == 'income'
+            ].sort_values('date', ascending=False)
+            
+            if not income.empty:
+                # Get category names
+                if not st.session_state.expense_categories.empty:
+                    # Create a dictionary of category_id to name
+                    category_dict = dict(zip(
+                        st.session_state.expense_categories['category_id'],
+                        st.session_state.expense_categories['name']
+                    ))
+                    
+                    # Format for display
+                    income_display = income.copy()
+                    income_display['category_name'] = income_display['category'].map(
+                        lambda x: category_dict.get(x, x)
+                    )
+                    
+                    display_income = pd.DataFrame({
+                        'Mã giao dịch': income_display['transaction_id'],
+                        'Ngày': income_display['date'],
+                        'Danh mục': income_display['category_name'],
+                        'Mô tả': income_display['description'],
+                        'Số tiền': income_display['amount'].apply(lambda x: f"{x:,.0f} VND"),
+                        'Thanh toán': income_display['payment_method']
+                    })
+                    
+                    st.dataframe(display_income, use_container_width=True)
+                else:
+                    st.dataframe(income[['date', 'category', 'description', 'amount', 'payment_method']])
+                
+                # Add edit functionality
+                st.write("### Chỉnh sửa khoản Thu")
+                
+                # Create income options for selection
+                income_options = []
+                for _, income_item in income.iterrows():
+                    category_name = category_dict.get(income_item['category'], income_item['category']) if 'category_dict' in locals() else income_item['category']
+                    income_options.append(f"{income_item['transaction_id']} - {income_item['date']} - {category_name} - {income_item['amount']:,.0f} VND")
+                
+                selected_income = st.selectbox(
+                    "Chọn khoản thu để chỉnh sửa",
+                    options=income_options,
+                    key="edit_income_select"
+                )
+                
+                if selected_income:
+                    # Extract transaction_id from selection
+                    selected_transaction_id = selected_income.split(' - ')[0]
+                    
+                    # Find the income data
+                    income_data = income[income['transaction_id'] == selected_transaction_id]
+                    
+                    if not income_data.empty:
+                        income_idx = income_data.index[0]
+                        income_info = income_data.iloc[0]
+                        
+                        st.write("#### Thông tin hiện tại")
+                        st.write(f"Ngày: {income_info['date']}")
+                        st.write(f"Danh mục: {category_dict.get(income_info['category'], income_info['category']) if 'category_dict' in locals() else income_info['category']}")
+                        st.write(f"Mô tả: {income_info['description']}")
+                        st.write(f"Số tiền: {income_info['amount']:,.0f} VND")
+                        st.write(f"Thanh toán: {income_info['payment_method']}")
+                        
+                        st.write("#### Cập nhật thông tin")
+                        
+                        # Edit form
+                        edit_col1, edit_col2 = st.columns(2)
+                        
+                        with edit_col1:
+                            # Convert string date to datetime.date
+                            current_date = datetime.datetime.strptime(income_info['date'], "%Y-%m-%d").date()
+                            
+                            # Date of income
+                            edit_date = st.date_input(
+                                "Ngày thu", 
+                                value=current_date,
+                                key="edit_income_date"
+                            ).strftime("%Y-%m-%d")
+                            
+                            # Income category
+                            if not income_categories.empty:
+                                # Find current category index
+                                category_options = []
+                                selected_index = 0
+                                
+                                for i, (_, category) in enumerate(income_categories.iterrows()):
+                                    category_options.append(f"{category['category_id']} - {category['name']}")
+                                    if category['category_id'] == income_info['category']:
+                                        selected_index = i
+                                
+                                edit_category = st.selectbox(
+                                    "Danh mục thu",
+                                    options=category_options,
+                                    index=selected_index,
+                                    key="edit_income_category"
+                                )
+                                
+                                # Extract category_id from selection
+                                edit_category_id = edit_category.split(' - ')[0] if edit_category else ""
+                            else:
+                                st.warning("Chưa có danh mục thu.")
+                                edit_category_id = income_info['category']
+                        
+                        with edit_col2:
+                            # Payment method
+                            payment_options = ["Tiền mặt", "Chuyển khoản", "Thẻ Visa", "Ví điện tử", "Khác"]
+                            payment_index = payment_options.index(income_info['payment_method']) if income_info['payment_method'] in payment_options else 0
+                            
+                            edit_payment = st.selectbox(
+                                "Phương thức thanh toán",
+                                options=payment_options,
+                                index=payment_index,
+                                key="edit_income_payment"
+                            )
+                            
+                            # Amount
+                            edit_amount = st.number_input(
+                                "Số tiền (VND)", 
+                                min_value=0, 
+                                value=int(income_info['amount']), 
+                                step=10000,
+                                key="edit_income_amount"
+                            )
+                        
+                        # Description
+                        edit_description = st.text_area(
+                            "Mô tả chi tiết",
+                            value=income_info['description'],
+                            key="edit_income_description"
+                        )
+                        
+                        # Update and Delete buttons
+                        col1, col2 = st.columns(2)
+                        
+                        with col1:
+                            if st.button("Cập nhật", key="update_income_btn"):
+                                if not edit_category_id:
+                                    st.error("Vui lòng chọn danh mục thu")
+                                elif edit_amount <= 0:
+                                    st.error("Vui lòng nhập số tiền hợp lệ")
+                                else:
+                                    # Update income
+                                    st.session_state.family_expenses.at[income_idx, 'date'] = edit_date
+                                    st.session_state.family_expenses.at[income_idx, 'category'] = edit_category_id
+                                    st.session_state.family_expenses.at[income_idx, 'description'] = edit_description
+                                    st.session_state.family_expenses.at[income_idx, 'amount'] = edit_amount
+                                    st.session_state.family_expenses.at[income_idx, 'payment_method'] = edit_payment
+                                    
+                                    # Save family expenses
+                                    save_dataframe(st.session_state.family_expenses, "family_expenses.csv")
+                                    
+                                    st.success(f"Đã cập nhật khoản thu thành công!")
+                                    st.rerun()  # Reload to update the display
+                        
+                        with col2:
+                            if st.button("Xóa", key="delete_income_btn"):
+                                # Delete income
+                                st.session_state.family_expenses = st.session_state.family_expenses[
+                                    st.session_state.family_expenses['transaction_id'] != selected_transaction_id
+                                ]
+                                
+                                # Save family expenses
+                                save_dataframe(st.session_state.family_expenses, "family_expenses.csv")
+                                
+                                st.success(f"Đã xóa khoản thu thành công!")
+                                st.rerun()  # Reload to update the display
+            else:
+                st.info("Chưa có khoản thu nào được lưu.")
+        else:
+            st.info("Chưa có khoản thu nào được lưu.")
