@@ -353,7 +353,7 @@ def setup_vietnamese_font():
         # Fall back to Helvetica
         return 'Helvetica'
 
-def save_all_data():
+ddef save_all_data():
     """Save all dataframes to CSV files"""
     save_dataframe(st.session_state.products, "products.csv")
     save_dataframe(st.session_state.materials, "materials.csv")
@@ -374,6 +374,20 @@ def save_all_data():
 
     if 'labor_costs' in st.session_state:
         save_dataframe(st.session_state.labor_costs, "labor_costs.csv")
+        
+    # Added new dataframes for family expense management
+    if 'family_expenses' in st.session_state:
+        save_dataframe(st.session_state.family_expenses, "family_expenses.csv")
+        
+    if 'expense_categories' in st.session_state:
+        save_dataframe(st.session_state.expense_categories, "expense_categories.csv")
+        
+    if 'expected_transactions' in st.session_state:
+        save_dataframe(st.session_state.expected_transactions, "expected_transactions.csv")
+        
+    # Added marketing costs tracking
+    if 'marketing_costs' in st.session_state:
+        save_dataframe(st.session_state.marketing_costs, "marketing_costs.csv")
 
 # Function to update material quantities after an order
 def update_materials_after_order(order_id):
