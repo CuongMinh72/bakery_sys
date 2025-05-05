@@ -278,6 +278,10 @@ default_expense_categories = pd.DataFrame(columns=[
     'category_id', 'name', 'type'  # type: 'income' or 'expense'
 ])
 
+default_expected_transactions = pd.DataFrame(columns=[
+    'transaction_id', 'date', 'category', 'description', 'amount', 'payment_method', 'type', 'is_completed'
+])
+
 # Load data from files or use defaults
 if 'products' not in st.session_state:
     st.session_state.products = load_dataframe("products.csv", default_products)
@@ -314,6 +318,9 @@ if 'family_expenses' not in st.session_state:
 
 if 'expense_categories' not in st.session_state:
     st.session_state.expense_categories = load_dataframe("expense_categories.csv", default_expense_categories)
+
+if 'expected_transactions' not in st.session_state:
+    st.session_state.expected_transactions = load_dataframe("expected_transactions.csv", default_expected_transactions)
 
 # Function to ensure we have Unicode support for Vietnamese
 def setup_vietnamese_font():
@@ -5295,7 +5302,7 @@ elif tab_selection == "Quản lý chi tiêu gia đình":
                 (st.session_state.family_expenses['date'] <= end_date_str)
             ]
             
-        # Get unique payment methods from the data
+            # Get unique payment methods from the data
             unique_payment_methods = ["Tất cả"] + sorted(filtered_expenses['payment_method'].unique().tolist())
             
             # Add new filter by payment method
@@ -5335,7 +5342,7 @@ elif tab_selection == "Quản lý chi tiêu gia đình":
                 st.metric("Còn lại", f"{balance:,.0f} VND", 
                         delta=f"{balance:,.0f} VND", 
                         delta_color="normal" if balance >= 0 else "inverse")
-                         
+                        
             # Display expense and income tables side by side
             col1, col2 = st.columns(2)
             
@@ -5376,6 +5383,87 @@ elif tab_selection == "Quản lý chi tiêu gia đình":
             # Display both tables
             display_transactions(expense_data, "Chi tiêu", col1)
             display_transactions(income_data, "Thu nhập", col2)
+            
+            # Add expected transactions tables
+            st.write("### Kế hoạch Thu Chi")
+            st.write("Các khoản Thu Chi dự kiến trong tương lai")
+
+            # Get expected transactions in the date range
+            if not st.session_state.expected_transactions.empty:
+                expected_filtered = st.session_state.expected_transactions[
+                    (st.session_state.expected_transactions['date'] >= start_date_str) &
+                    (st.session_state.expected_transactions['date'] <= end_date_str)
+                ]
+                
+                # Apply payment method filter if one is selected
+                if payment_method_filter != "Tất cả":
+                    expected_filtered = expected_filtered[expected_filtered['payment_method'] == payment_method_filter]
+                
+                # Separate expected income and expenses
+                expected_income = expected_filtered[expected_filtered['type'] == 'income']
+                expected_expense = expected_filtered[expected_filtered['type'] == 'expense']
+                
+                # Calculate totals for expected transactions
+                expected_total_income = expected_income['amount'].sum() if not expected_income.empty else 0
+                expected_total_expense = expected_expense['amount'].sum() if not expected_expense.empty else 0
+                expected_balance = expected_total_income - expected_total_expense
+                
+                # Display expected summary metrics
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.metric("Tổng Thu dự kiến", f"{expected_total_income:,.0f} VND")
+                with col2:
+                    st.metric("Tổng Chi dự kiến", f"{expected_total_expense:,.0f} VND")
+                with col3:
+                    st.metric("Còn lại dự kiến", f"{expected_balance:,.0f} VND", 
+                            delta=f"{expected_balance:,.0f} VND", 
+                            delta_color="normal" if expected_balance >= 0 else "inverse")
+                
+                # Display expected tables side by side
+                col1, col2 = st.columns(2)
+                
+                # Function to display expected transactions
+                def display_expected_transactions(data, title, column):
+                    with column:
+                        st.write(f"### {title}")
+                        if not data.empty:
+                            # Get category names
+                            if not st.session_state.expense_categories.empty:
+                                # Create a dictionary of category_id to name
+                                category_dict = dict(zip(
+                                    st.session_state.expense_categories['category_id'],
+                                    st.session_state.expense_categories['name']
+                                ))
+                                
+                                # Replace category_id with name
+                                data_display = data.copy()
+                                data_display['category'] = data_display['category'].map(
+                                    lambda x: category_dict.get(x, x)
+                                )
+                                
+                                # Format for display with status
+                                display_df = pd.DataFrame({
+                                    'Ngày': data_display['date'],
+                                    'Danh mục': data_display['category'],
+                                    'Nội dung': data_display['description'],
+                                    'Số tiền': data_display['amount'].apply(lambda x: f"{x:,.0f} VND"),
+                                    'Thanh toán': data_display['payment_method'],
+                                    'Trạng thái': data_display['is_completed'].apply(
+                                        lambda x: "✅ Hoàn thành" if x else "⏳ Chưa hoàn thành"
+                                    )
+                                })
+                                
+                                st.dataframe(display_df, use_container_width=True)
+                            else:
+                                st.info(f"Không có dữ liệu danh mục {title.lower()}.")
+                        else:
+                            st.info(f"Không có dữ liệu {title.lower()} dự kiến trong khoảng thời gian này.")
+                
+                # Display both expected tables
+                display_expected_transactions(expected_expense, "Chi tiêu dự kiến", col1)
+                display_expected_transactions(expected_income, "Thu nhập dự kiến", col2)
+            else:
+                st.info("Chưa có kế hoạch thu chi. Vui lòng tạo kế hoạch thu chi trong tab Chi và Thu.")
             
             # Add expense category management
             st.write("### Quản lý Danh mục")
@@ -5728,6 +5816,78 @@ elif tab_selection == "Quản lý chi tiêu gia đình":
                         
                         # Display the chart
                         st.plotly_chart(fig, use_container_width=True)
+                        
+                        # Add expected transactions to the time series chart if available
+                        if not st.session_state.expected_transactions.empty:
+                            expected_filtered['date_obj'] = pd.to_datetime(expected_filtered['date'])
+                            
+                            # Group by date
+                            daily_expected_income = expected_income.groupby('date')['amount'].sum().reset_index() if not expected_income.empty else pd.DataFrame(columns=['date', 'amount'])
+                            daily_expected_expense = expected_expense.groupby('date')['amount'].sum().reset_index() if not expected_expense.empty else pd.DataFrame(columns=['date', 'amount'])
+                            
+                            # Convert to datetime for proper sorting
+                            if not daily_expected_income.empty:
+                                daily_expected_income['date_obj'] = pd.to_datetime(daily_expected_income['date'])
+                                daily_expected_income = daily_expected_income.sort_values('date_obj')
+                            
+                            if not daily_expected_expense.empty:
+                                daily_expected_expense['date_obj'] = pd.to_datetime(daily_expected_expense['date'])
+                                daily_expected_expense = daily_expected_expense.sort_values('date_obj')
+                            
+                            # Create time series chart for expected transactions
+                            fig = go.Figure()
+                            
+                            # Add actual data first as reference
+                            if not daily_income.empty:
+                                fig.add_trace(go.Scatter(
+                                    x=daily_income['date_obj'],
+                                    y=daily_income['amount'],
+                                    mode='lines+markers',
+                                    name='Thu nhập thực tế',
+                                    line=dict(color='#4CAF50', width=3)
+                                ))
+                            
+                            if not daily_expense.empty:
+                                fig.add_trace(go.Scatter(
+                                    x=daily_expense['date_obj'],
+                                    y=daily_expense['amount'],
+                                    mode='lines+markers',
+                                    name='Chi tiêu thực tế',
+                                    line=dict(color='#FF6B6B', width=3)
+                                ))
+                            
+                            # Add expected data with dashed lines
+                            if not daily_expected_income.empty:
+                                fig.add_trace(go.Scatter(
+                                    x=daily_expected_income['date_obj'],
+                                    y=daily_expected_income['amount'],
+                                    mode='lines+markers',
+                                    name='Thu nhập dự kiến',
+                                    line=dict(color='#9CCC65', width=2, dash='dash')
+                                ))
+                            
+                            if not daily_expected_expense.empty:
+                                fig.add_trace(go.Scatter(
+                                    x=daily_expected_expense['date_obj'],
+                                    y=daily_expected_expense['amount'],
+                                    mode='lines+markers',
+                                    name='Chi tiêu dự kiến',
+                                    line=dict(color='#FFAB91', width=2, dash='dash')
+                                ))
+                            
+                            fig.update_layout(
+                                title="Thu Chi Thực tế và Dự kiến theo Thời gian",
+                                xaxis_title="Ngày",
+                                yaxis_title="Số tiền (VND)",
+                                height=500,
+                                legend_title="Loại"
+                            )
+                            
+                            # Format y-axis to use comma separation for thousands
+                            fig.update_yaxes(tickformat=",")
+                            
+                            # Display the chart
+                            st.plotly_chart(fig, use_container_width=True)
         else:
             st.info("Chưa có dữ liệu chi tiêu. Vui lòng thêm các khoản thu chi trong tab 'Chi' và 'Thu'.")
             
@@ -5849,545 +6009,1227 @@ elif tab_selection == "Quản lý chi tiêu gia đình":
                     st.rerun()  # Reload the page to show the new category
         
     with expense_tab2:
-        st.subheader("Quản lý Chi tiêu")
-        
-        # Add form to create new expense
-        st.write("### Thêm khoản Chi mới")
-        
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            # Date of expense
-            expense_date = st.date_input(
-                "Ngày chi", 
-                value=datetime.date.today(),
-                key="expense_date"
-            ).strftime("%Y-%m-%d")
-            
-            # Expense category
-            expense_categories = st.session_state.expense_categories[
-                st.session_state.expense_categories['type'] == 'expense'
-            ]
-            
-            if not expense_categories.empty:
-                category_options = []
-                for _, category in expense_categories.iterrows():
-                    category_options.append(f"{category['category_id']} - {category['name']}")
-                
-                selected_category = st.selectbox(
-                    "Danh mục chi",
-                    options=category_options,
-                    key="expense_category"
-                )
-                
-                # Extract category_id from selection
-                expense_category_id = selected_category.split(' - ')[0] if selected_category else ""
-            else:
-                st.warning("Chưa có danh mục chi. Vui lòng thêm danh mục trong tab 'Tổng quát'.")
-                expense_category_id = ""
-        
-        with col2:
-            # Payment method
-            payment_method = st.selectbox(
-                "Phương thức thanh toán",
-                options=["Tiền mặt", "Thẻ Visa", "Chuyển khoản", "Ví điện tử", "Khác"],
-                key="expense_payment_method"
-            )
-            
-            # Amount
-            expense_amount = st.number_input(
-                "Số tiền (VND)", 
-                min_value=0, 
-                value=0, 
-                step=10000,
-                key="expense_amount"
-            )
-        
-        # Description
-        expense_description = st.text_area(
-            "Mô tả chi tiết",
-            key="expense_description"
+        # Add toggle to switch between actual and expected expenses
+        expense_mode = st.radio(
+            "Chọn chế độ:",
+            ["Khoản Chi thực tế", "Khoản Chi dự kiến"],
+            horizontal=True,
+            key="expense_mode"
         )
-        
-        # Add button to save expense
-        if st.button("Lưu khoản Chi", key="save_expense_btn"):
-            if not expense_category_id:
-                st.error("Vui lòng chọn danh mục chi")
-            elif expense_amount <= 0:
-                st.error("Vui lòng nhập số tiền hợp lệ")
-            else:
-                # Generate unique transaction ID
-                transaction_id = f"TRX-{uuid.uuid4().hex[:8].upper()}"
-                
-                # Create new expense
-                new_expense = pd.DataFrame({
-                    'transaction_id': [transaction_id],
-                    'date': [expense_date],
-                    'category': [expense_category_id],
-                    'description': [expense_description],
-                    'amount': [expense_amount],
-                    'payment_method': [payment_method],
-                    'type': ['expense']
-                })
-                
-                # Add to existing expenses
-                st.session_state.family_expenses = pd.concat(
-                    [st.session_state.family_expenses, new_expense],
-                    ignore_index=True
-                )
-                
-                # Save family expenses
-                save_dataframe(st.session_state.family_expenses, "family_expenses.csv")
-                
-                st.success(f"Đã lưu khoản chi {expense_amount:,.0f} VND thành công!")
-                st.rerun()  # Reload to update the display
-        
-        # Display existing expenses
-        st.write("### Khoản Chi đã lưu")
-        
-        if not st.session_state.family_expenses.empty:
-            # Filter only expense type records
-            expenses = st.session_state.family_expenses[
-                st.session_state.family_expenses['type'] == 'expense'
-            ].sort_values('date', ascending=False)
+
+        if expense_mode == "Khoản Chi thực tế":
+            # Original code for actual expenses
+            st.subheader("Quản lý Chi tiêu")
             
-            if not expenses.empty:
-                # Get category names
-                if not st.session_state.expense_categories.empty:
-                    # Create a dictionary of category_id to name
-                    category_dict = dict(zip(
-                        st.session_state.expense_categories['category_id'],
-                        st.session_state.expense_categories['name']
-                    ))
+            # Add form to create new expense
+            st.write("### Thêm khoản Chi mới")
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                # Date of expense
+                expense_date = st.date_input(
+                    "Ngày chi", 
+                    value=datetime.date.today(),
+                    key="expense_date"
+                ).strftime("%Y-%m-%d")
+                
+                # Expense category
+                expense_categories = st.session_state.expense_categories[
+                    st.session_state.expense_categories['type'] == 'expense'
+                ]
+                
+                if not expense_categories.empty:
+                    category_options = []
+                    for _, category in expense_categories.iterrows():
+                        category_options.append(f"{category['category_id']} - {category['name']}")
                     
-                    # Format for display
-                    expenses_display = expenses.copy()
-                    expenses_display['category_name'] = expenses_display['category'].map(
-                        lambda x: category_dict.get(x, x)
+                    selected_category = st.selectbox(
+                        "Danh mục chi",
+                        options=category_options,
+                        key="expense_category"
                     )
                     
-                    display_expenses = pd.DataFrame({
-                        'Mã giao dịch': expenses_display['transaction_id'],
-                        'Ngày': expenses_display['date'],
-                        'Danh mục': expenses_display['category_name'],
-                        'Mô tả': expenses_display['description'],
-                        'Số tiền': expenses_display['amount'].apply(lambda x: f"{x:,.0f} VND"),
-                        'Thanh toán': expenses_display['payment_method']
-                    })
-                    
-                    st.dataframe(display_expenses, use_container_width=True)
+                    # Extract category_id from selection
+                    expense_category_id = selected_category.split(' - ')[0] if selected_category else ""
                 else:
-                    st.dataframe(expenses[['date', 'category', 'description', 'amount', 'payment_method']])
-                
-                # Add edit functionality
-                st.write("### Chỉnh sửa khoản Chi")
-                
-                # Create expense options for selection
-                expense_options = []
-                for _, expense in expenses.iterrows():
-                    category_name = category_dict.get(expense['category'], expense['category']) if 'category_dict' in locals() else expense['category']
-                    expense_options.append(f"{expense['transaction_id']} - {expense['date']} - {category_name} - {expense['amount']:,.0f} VND")
-                
-                selected_expense = st.selectbox(
-                    "Chọn khoản chi để chỉnh sửa",
-                    options=expense_options,
-                    key="edit_expense_select"
+                    st.warning("Chưa có danh mục chi. Vui lòng thêm danh mục trong tab 'Tổng quát'.")
+                    expense_category_id = ""
+            
+            with col2:
+                # Payment method
+                payment_method = st.selectbox(
+                    "Phương thức thanh toán",
+                    options=["Tiền mặt", "Thẻ Visa", "Chuyển khoản", "Ví điện tử", "Khác"],
+                    key="expense_payment_method"
                 )
                 
-                if selected_expense:
-                    # Extract transaction_id from selection
-                    selected_transaction_id = selected_expense.split(' - ')[0]
+                # Amount
+                expense_amount = st.number_input(
+                    "Số tiền (VND)", 
+                    min_value=0, 
+                    value=0, 
+                    step=10000,
+                    key="expense_amount"
+                )
+            
+            # Description
+            expense_description = st.text_area(
+                "Mô tả chi tiết",
+                key="expense_description"
+            )
+            
+            # Add button to save expense
+            if st.button("Lưu khoản Chi", key="save_expense_btn"):
+                if not expense_category_id:
+                    st.error("Vui lòng chọn danh mục chi")
+                elif expense_amount <= 0:
+                    st.error("Vui lòng nhập số tiền hợp lệ")
+                else:
+                    # Generate unique transaction ID
+                    transaction_id = f"TRX-{uuid.uuid4().hex[:8].upper()}"
                     
-                    # Find the expense data
-                    expense_data = expenses[expenses['transaction_id'] == selected_transaction_id]
+                    # Create new expense
+                    new_expense = pd.DataFrame({
+                        'transaction_id': [transaction_id],
+                        'date': [expense_date],
+                        'category': [expense_category_id],
+                        'description': [expense_description],
+                        'amount': [expense_amount],
+                        'payment_method': [payment_method],
+                        'type': ['expense']
+                    })
                     
-                    if not expense_data.empty:
-                        expense_idx = expense_data.index[0]
-                        expense_info = expense_data.iloc[0]
+                    # Add to existing expenses
+                    st.session_state.family_expenses = pd.concat(
+                        [st.session_state.family_expenses, new_expense],
+                        ignore_index=True
+                    )
+                    
+                    # Save family expenses
+                    save_dataframe(st.session_state.family_expenses, "family_expenses.csv")
+                    
+                    st.success(f"Đã lưu khoản chi {expense_amount:,.0f} VND thành công!")
+                    st.rerun()  # Reload to update the display
+            
+            # Display existing expenses
+            st.write("### Khoản Chi đã lưu")
+            
+            if not st.session_state.family_expenses.empty:
+                # Filter only expense type records
+                expenses = st.session_state.family_expenses[
+                    st.session_state.family_expenses['type'] == 'expense'
+                ].sort_values('date', ascending=False)
+                
+                if not expenses.empty:
+                    # Get category names
+                    if not st.session_state.expense_categories.empty:
+                        # Create a dictionary of category_id to name
+                        category_dict = dict(zip(
+                            st.session_state.expense_categories['category_id'],
+                            st.session_state.expense_categories['name']
+                        ))
                         
-                        st.write("#### Thông tin hiện tại")
-                        st.write(f"Ngày: {expense_info['date']}")
-                        st.write(f"Danh mục: {category_dict.get(expense_info['category'], expense_info['category']) if 'category_dict' in locals() else expense_info['category']}")
-                        st.write(f"Mô tả: {expense_info['description']}")
-                        st.write(f"Số tiền: {expense_info['amount']:,.0f} VND")
-                        st.write(f"Thanh toán: {expense_info['payment_method']}")
-                        
-                        st.write("#### Cập nhật thông tin")
-                        
-                        # Edit form
-                        edit_col1, edit_col2 = st.columns(2)
-                        
-                        with edit_col1:
-                            # Convert string date to datetime.date
-                            current_date = datetime.datetime.strptime(expense_info['date'], "%Y-%m-%d").date()
-                            
-                            # Date of expense
-                            edit_date = st.date_input(
-                                "Ngày chi", 
-                                value=current_date,
-                                key="edit_expense_date"
-                            ).strftime("%Y-%m-%d")
-                            
-                            # Expense category
-                            if not expense_categories.empty:
-                                # Find current category index
-                                category_options = []
-                                selected_index = 0
-                                
-                                for i, (_, category) in enumerate(expense_categories.iterrows()):
-                                    category_options.append(f"{category['category_id']} - {category['name']}")
-                                    if category['category_id'] == expense_info['category']:
-                                        selected_index = i
-                                
-                                edit_category = st.selectbox(
-                                    "Danh mục chi",
-                                    options=category_options,
-                                    index=selected_index,
-                                    key="edit_expense_category"
-                                )
-                                
-                                # Extract category_id from selection
-                                edit_category_id = edit_category.split(' - ')[0] if edit_category else ""
-                            else:
-                                st.warning("Chưa có danh mục chi.")
-                                edit_category_id = expense_info['category']
-                        
-                        with edit_col2:
-                            # Payment method
-                            payment_options = ["Tiền mặt", "Thẻ Visa", "Chuyển khoản", "Ví điện tử", "Khác"]
-                            payment_index = payment_options.index(expense_info['payment_method']) if expense_info['payment_method'] in payment_options else 0
-                            
-                            edit_payment = st.selectbox(
-                                "Phương thức thanh toán",
-                                options=payment_options,
-                                index=payment_index,
-                                key="edit_expense_payment"
-                            )
-                            
-                            # Amount
-                            edit_amount = st.number_input(
-                                "Số tiền (VND)", 
-                                min_value=0, 
-                                value=int(expense_info['amount']), 
-                                step=10000,
-                                key="edit_expense_amount"
-                            )
-                        
-                        # Description
-                        edit_description = st.text_area(
-                            "Mô tả chi tiết",
-                            value=expense_info['description'],
-                            key="edit_expense_description"
+                        # Format for display
+                        expenses_display = expenses.copy()
+                        expenses_display['category_name'] = expenses_display['category'].map(
+                            lambda x: category_dict.get(x, x)
                         )
                         
-                        # Update and Delete buttons
-                        col1, col2 = st.columns(2)
+                        display_expenses = pd.DataFrame({
+                            'Mã giao dịch': expenses_display['transaction_id'],
+                            'Ngày': expenses_display['date'],
+                            'Danh mục': expenses_display['category_name'],
+                            'Mô tả': expenses_display['description'],
+                            'Số tiền': expenses_display['amount'].apply(lambda x: f"{x:,.0f} VND"),
+                            'Thanh toán': expenses_display['payment_method']
+                        })
                         
-                        with col1:
-                            if st.button("Cập nhật", key="update_expense_btn"):
-                                if not edit_category_id:
-                                    st.error("Vui lòng chọn danh mục chi")
-                                elif edit_amount <= 0:
-                                    st.error("Vui lòng nhập số tiền hợp lệ")
+                        st.dataframe(display_expenses, use_container_width=True)
+                    else:
+                        st.dataframe(expenses[['date', 'category', 'description', 'amount', 'payment_method']])
+                    
+                    # Add edit functionality
+                    st.write("### Chỉnh sửa khoản Chi")
+                    
+                    # Create expense options for selection
+                    expense_options = []
+                    for _, expense in expenses.iterrows():
+                        category_name = category_dict.get(expense['category'], expense['category']) if 'category_dict' in locals() else expense['category']
+                        expense_options.append(f"{expense['transaction_id']} - {expense['date']} - {category_name} - {expense['amount']:,.0f} VND")
+                    
+                    selected_expense = st.selectbox(
+                        "Chọn khoản chi để chỉnh sửa",
+                        options=expense_options,
+                        key="edit_expense_select"
+                    )
+                    
+                    if selected_expense:
+                        # Extract transaction_id from selection
+                        selected_transaction_id = selected_expense.split(' - ')[0]
+                        
+                        # Find the expense data
+                        expense_data = expenses[expenses['transaction_id'] == selected_transaction_id]
+                        
+                        if not expense_data.empty:
+                            expense_idx = expense_data.index[0]
+                            expense_info = expense_data.iloc[0]
+                            
+                            st.write("#### Thông tin hiện tại")
+                            st.write(f"Ngày: {expense_info['date']}")
+                            st.write(f"Danh mục: {category_dict.get(expense_info['category'], expense_info['category']) if 'category_dict' in locals() else expense_info['category']}")
+                            st.write(f"Mô tả: {expense_info['description']}")
+                            st.write(f"Số tiền: {expense_info['amount']:,.0f} VND")
+                            st.write(f"Thanh toán: {expense_info['payment_method']}")
+                            
+                            st.write("#### Cập nhật thông tin")
+                            
+                            # Edit form
+                            edit_col1, edit_col2 = st.columns(2)
+                            
+                            with edit_col1:
+                                # Convert string date to datetime.date
+                                current_date = datetime.datetime.strptime(expense_info['date'], "%Y-%m-%d").date()
+                                
+                                # Date of expense
+                                edit_date = st.date_input(
+                                    "Ngày chi", 
+                                    value=current_date,
+                                    key="edit_expense_date"
+                                ).strftime("%Y-%m-%d")
+                                
+                                # Expense category
+                                if not expense_categories.empty:
+                                    # Find current category index
+                                    category_options = []
+                                    selected_index = 0
+                                    
+                                    for i, (_, category) in enumerate(expense_categories.iterrows()):
+                                        category_options.append(f"{category['category_id']} - {category['name']}")
+                                        if category['category_id'] == expense_info['category']:
+                                            selected_index = i
+                                    
+                                    edit_category = st.selectbox(
+                                        "Danh mục chi",
+                                        options=category_options,
+                                        index=selected_index,
+                                        key="edit_expense_category"
+                                    )
+                                    
+                                    # Extract category_id from selection
+                                    edit_category_id = edit_category.split(' - ')[0] if edit_category else ""
                                 else:
-                                    # Update expense
-                                    st.session_state.family_expenses.at[expense_idx, 'date'] = edit_date
-                                    st.session_state.family_expenses.at[expense_idx, 'category'] = edit_category_id
-                                    st.session_state.family_expenses.at[expense_idx, 'description'] = edit_description
-                                    st.session_state.family_expenses.at[expense_idx, 'amount'] = edit_amount
-                                    st.session_state.family_expenses.at[expense_idx, 'payment_method'] = edit_payment
+                                    st.warning("Chưa có danh mục chi.")
+                                    edit_category_id = expense_info['category']
+                            
+                            with edit_col2:
+                                # Payment method
+                                payment_options = ["Tiền mặt", "Thẻ Visa", "Chuyển khoản", "Ví điện tử", "Khác"]
+                                payment_index = payment_options.index(expense_info['payment_method']) if expense_info['payment_method'] in payment_options else 0
+                                
+                                edit_payment = st.selectbox(
+                                    "Phương thức thanh toán",
+                                    options=payment_options,
+                                    index=payment_index,
+                                    key="edit_expense_payment"
+                                )
+                                
+                                # Amount
+                                edit_amount = st.number_input(
+                                    "Số tiền (VND)", 
+                                    min_value=0, 
+                                    value=int(expense_info['amount']), 
+                                    step=10000,
+                                    key="edit_expense_amount"
+                                )
+                            
+                            # Description
+                            edit_description = st.text_area(
+                                "Mô tả chi tiết",
+                                value=expense_info['description'],
+                                key="edit_expense_description"
+                            )
+                            
+                            # Update and Delete buttons
+                            col1, col2 = st.columns(2)
+                            
+                            with col1:
+                                if st.button("Cập nhật", key="update_expense_btn"):
+                                    if not edit_category_id:
+                                        st.error("Vui lòng chọn danh mục chi")
+                                    elif edit_amount <= 0:
+                                        st.error("Vui lòng nhập số tiền hợp lệ")
+                                    else:
+                                        # Update expense
+                                        st.session_state.family_expenses.at[expense_idx, 'date'] = edit_date
+                                        st.session_state.family_expenses.at[expense_idx, 'category'] = edit_category_id
+                                        st.session_state.family_expenses.at[expense_idx, 'description'] = edit_description
+                                        st.session_state.family_expenses.at[expense_idx, 'amount'] = edit_amount
+                                        st.session_state.family_expenses.at[expense_idx, 'payment_method'] = edit_payment
+                                        
+                                        # Save family expenses
+                                        save_dataframe(st.session_state.family_expenses, "family_expenses.csv")
+                                        
+                                        st.success(f"Đã cập nhật khoản chi thành công!")
+                                        st.rerun()  # Reload to update the display
+                            
+                            with col2:
+                                if st.button("Xóa", key="delete_expense_btn"):
+                                    # Delete expense
+                                    st.session_state.family_expenses = st.session_state.family_expenses[
+                                        st.session_state.family_expenses['transaction_id'] != selected_transaction_id
+                                    ]
                                     
                                     # Save family expenses
                                     save_dataframe(st.session_state.family_expenses, "family_expenses.csv")
                                     
-                                    st.success(f"Đã cập nhật khoản chi thành công!")
+                                    st.success(f"Đã xóa khoản chi thành công!")
                                     st.rerun()  # Reload to update the display
-                        
-                        with col2:
-                            if st.button("Xóa", key="delete_expense_btn"):
-                                # Delete expense
-                                st.session_state.family_expenses = st.session_state.family_expenses[
-                                    st.session_state.family_expenses['transaction_id'] != selected_transaction_id
-                                ]
-                                
-                                # Save family expenses
-                                save_dataframe(st.session_state.family_expenses, "family_expenses.csv")
-                                
-                                st.success(f"Đã xóa khoản chi thành công!")
-                                st.rerun()  # Reload to update the display
+                else:
+                    st.info("Chưa có khoản chi nào được lưu.")
             else:
                 st.info("Chưa có khoản chi nào được lưu.")
+        
         else:
-            st.info("Chưa có khoản chi nào được lưu.")
-    
-    with expense_tab3:
-        st.subheader("Quản lý Thu nhập")
-        
-        # Add form to create new income
-        st.write("### Thêm khoản Thu mới")
-        
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            # Date of income
-            income_date = st.date_input(
-                "Ngày thu", 
-                value=datetime.date.today(),
-                key="income_date"
-            ).strftime("%Y-%m-%d")
+            # Add new UI for expected expenses
+            st.subheader("Quản lý Chi tiêu dự kiến")
+            st.write("### Thêm khoản Chi dự kiến")
             
-            # Income category
-            income_categories = st.session_state.expense_categories[
-                st.session_state.expense_categories['type'] == 'income'
-            ]
+            col1, col2 = st.columns(2)
             
-            if not income_categories.empty:
-                category_options = []
-                for _, category in income_categories.iterrows():
-                    category_options.append(f"{category['category_id']} - {category['name']}")
+            with col1:
+                # Date of expected expense
+                exp_expense_date = st.date_input(
+                    "Ngày chi dự kiến", 
+                    value=datetime.date.today() + datetime.timedelta(days=7),  # Default to a week from now
+                    key="exp_expense_date"
+                ).strftime("%Y-%m-%d")
                 
-                selected_category = st.selectbox(
-                    "Danh mục thu",
-                    options=category_options,
-                    key="income_category"
-                )
+                # Expense category
+                expense_categories = st.session_state.expense_categories[
+                    st.session_state.expense_categories['type'] == 'expense'
+                ]
                 
-                # Extract category_id from selection
-                income_category_id = selected_category.split(' - ')[0] if selected_category else ""
-            else:
-                st.warning("Chưa có danh mục thu. Vui lòng thêm danh mục trong tab 'Tổng quát'.")
-                income_category_id = ""
-        
-        with col2:
-            # Payment method
-            payment_method = st.selectbox(
-                "Phương thức thanh toán",
-                options=["Tiền mặt", "Chuyển khoản", "Thẻ Visa", "Ví điện tử", "Khác"],
-                key="income_payment_method"
-            )
-            
-            # Amount
-            income_amount = st.number_input(
-                "Số tiền (VND)", 
-                min_value=0, 
-                value=0, 
-                step=10000,
-                key="income_amount"
-            )
-        
-        # Description
-        income_description = st.text_area(
-            "Mô tả chi tiết",
-            key="income_description"
-        )
-        
-        # Add button to save income
-        if st.button("Lưu khoản Thu", key="save_income_btn"):
-            if not income_category_id:
-                st.error("Vui lòng chọn danh mục thu")
-            elif income_amount <= 0:
-                st.error("Vui lòng nhập số tiền hợp lệ")
-            else:
-                # Generate unique transaction ID
-                transaction_id = f"TRX-{uuid.uuid4().hex[:8].upper()}"
-                
-                # Create new income
-                new_income = pd.DataFrame({
-                    'transaction_id': [transaction_id],
-                    'date': [income_date],
-                    'category': [income_category_id],
-                    'description': [income_description],
-                    'amount': [income_amount],
-                    'payment_method': [payment_method],
-                    'type': ['income']
-                })
-                
-                # Add to existing expenses
-                st.session_state.family_expenses = pd.concat(
-                    [st.session_state.family_expenses, new_income],
-                    ignore_index=True
-                )
-                
-                # Save family expenses
-                save_dataframe(st.session_state.family_expenses, "family_expenses.csv")
-                
-                st.success(f"Đã lưu khoản thu {income_amount:,.0f} VND thành công!")
-                st.rerun()  # Reload to update the display
-        
-        # Display existing income
-        st.write("### Khoản Thu đã lưu")
-        
-        if not st.session_state.family_expenses.empty:
-            # Filter only income type records
-            income = st.session_state.family_expenses[
-                st.session_state.family_expenses['type'] == 'income'
-            ].sort_values('date', ascending=False)
-            
-            if not income.empty:
-                # Get category names
-                if not st.session_state.expense_categories.empty:
-                    # Create a dictionary of category_id to name
-                    category_dict = dict(zip(
-                        st.session_state.expense_categories['category_id'],
-                        st.session_state.expense_categories['name']
-                    ))
+                if not expense_categories.empty:
+                    category_options = []
+                    for _, category in expense_categories.iterrows():
+                        category_options.append(f"{category['category_id']} - {category['name']}")
                     
-                    # Format for display
-                    income_display = income.copy()
-                    income_display['category_name'] = income_display['category'].map(
-                        lambda x: category_dict.get(x, x)
+                    selected_category = st.selectbox(
+                        "Danh mục chi",
+                        options=category_options,
+                        key="exp_expense_category"
                     )
                     
-                    display_income = pd.DataFrame({
-                        'Mã giao dịch': income_display['transaction_id'],
-                        'Ngày': income_display['date'],
-                        'Danh mục': income_display['category_name'],
-                        'Mô tả': income_display['description'],
-                        'Số tiền': income_display['amount'].apply(lambda x: f"{x:,.0f} VND"),
-                        'Thanh toán': income_display['payment_method']
-                    })
-                    
-                    st.dataframe(display_income, use_container_width=True)
+                    # Extract category_id from selection
+                    exp_expense_category_id = selected_category.split(' - ')[0] if selected_category else ""
                 else:
-                    st.dataframe(income[['date', 'category', 'description', 'amount', 'payment_method']])
-                
-                # Add edit functionality
-                st.write("### Chỉnh sửa khoản Thu")
-                
-                # Create income options for selection
-                income_options = []
-                for _, income_item in income.iterrows():
-                    category_name = category_dict.get(income_item['category'], income_item['category']) if 'category_dict' in locals() else income_item['category']
-                    income_options.append(f"{income_item['transaction_id']} - {income_item['date']} - {category_name} - {income_item['amount']:,.0f} VND")
-                
-                selected_income = st.selectbox(
-                    "Chọn khoản thu để chỉnh sửa",
-                    options=income_options,
-                    key="edit_income_select"
+                    st.warning("Chưa có danh mục chi. Vui lòng thêm danh mục trong tab 'Tổng quát'.")
+                    exp_expense_category_id = ""
+            
+            with col2:
+                # Payment method
+                exp_payment_method = st.selectbox(
+                    "Phương thức thanh toán",
+                    options=["Tiền mặt", "Thẻ Visa", "Chuyển khoản", "Ví điện tử", "Khác"],
+                    key="exp_expense_payment_method"
                 )
                 
-                if selected_income:
-                    # Extract transaction_id from selection
-                    selected_transaction_id = selected_income.split(' - ')[0]
+                # Amount
+                exp_expense_amount = st.number_input(
+                    "Số tiền dự kiến (VND)", 
+                    min_value=0, 
+                    value=0, 
+                    step=10000,
+                    key="exp_expense_amount"
+                )
+            
+            # Description
+            exp_expense_description = st.text_area(
+                "Mô tả chi tiết",
+                key="exp_expense_description"
+            )
+            
+            # Completion status (default to not completed)
+            exp_expense_completed = st.checkbox(
+                "Đã hoàn thành",
+                value=False,
+                key="exp_expense_completed"
+            )
+            
+            # Add button to save expected expense
+            if st.button("Lưu khoản Chi dự kiến", key="save_exp_expense_btn"):
+                if not exp_expense_category_id:
+                    st.error("Vui lòng chọn danh mục chi")
+                elif exp_expense_amount <= 0:
+                    st.error("Vui lòng nhập số tiền hợp lệ")
+                else:
+                    # Generate unique transaction ID
+                    transaction_id = f"EXP-{uuid.uuid4().hex[:8].upper()}"
                     
-                    # Find the income data
-                    income_data = income[income['transaction_id'] == selected_transaction_id]
+                    # Create new expected expense
+                    new_exp_expense = pd.DataFrame({
+                        'transaction_id': [transaction_id],
+                        'date': [exp_expense_date],
+                        'category': [exp_expense_category_id],
+                        'description': [exp_expense_description],
+                        'amount': [exp_expense_amount],
+                        'payment_method': [exp_payment_method],
+                        'type': ['expense'],
+                        'is_completed': [exp_expense_completed]
+                    })
                     
-                    if not income_data.empty:
-                        income_idx = income_data.index[0]
-                        income_info = income_data.iloc[0]
+                    # Add to existing expected transactions
+                    st.session_state.expected_transactions = pd.concat(
+                        [st.session_state.expected_transactions, new_exp_expense],
+                        ignore_index=True
+                    )
+                    
+                    # Save expected transactions
+                    save_dataframe(st.session_state.expected_transactions, "expected_transactions.csv")
+                    
+                    st.success(f"Đã lưu khoản chi dự kiến {exp_expense_amount:,.0f} VND thành công!")
+                    st.rerun()  # Reload to update the display
+            
+            # Display existing expected expenses
+            st.write("### Khoản Chi dự kiến đã lưu")
+            
+            if not st.session_state.expected_transactions.empty:
+                # Filter only expected expense type records
+                expected_expenses = st.session_state.expected_transactions[
+                    (st.session_state.expected_transactions['type'] == 'expense')
+                ].sort_values('date', ascending=False)
+                
+                if not expected_expenses.empty:
+                    # Get category names
+                    if not st.session_state.expense_categories.empty:
+                        # Create a dictionary of category_id to name
+                        category_dict = dict(zip(
+                            st.session_state.expense_categories['category_id'],
+                            st.session_state.expense_categories['name']
+                        ))
                         
-                        st.write("#### Thông tin hiện tại")
-                        st.write(f"Ngày: {income_info['date']}")
-                        st.write(f"Danh mục: {category_dict.get(income_info['category'], income_info['category']) if 'category_dict' in locals() else income_info['category']}")
-                        st.write(f"Mô tả: {income_info['description']}")
-                        st.write(f"Số tiền: {income_info['amount']:,.0f} VND")
-                        st.write(f"Thanh toán: {income_info['payment_method']}")
-                        
-                        st.write("#### Cập nhật thông tin")
-                        
-                        # Edit form
-                        edit_col1, edit_col2 = st.columns(2)
-                        
-                        with edit_col1:
-                            # Convert string date to datetime.date
-                            current_date = datetime.datetime.strptime(income_info['date'], "%Y-%m-%d").date()
-                            
-                            # Date of income
-                            edit_date = st.date_input(
-                                "Ngày thu", 
-                                value=current_date,
-                                key="edit_income_date"
-                            ).strftime("%Y-%m-%d")
-                            
-                            # Income category
-                            if not income_categories.empty:
-                                # Find current category index
-                                category_options = []
-                                selected_index = 0
-                                
-                                for i, (_, category) in enumerate(income_categories.iterrows()):
-                                    category_options.append(f"{category['category_id']} - {category['name']}")
-                                    if category['category_id'] == income_info['category']:
-                                        selected_index = i
-                                
-                                edit_category = st.selectbox(
-                                    "Danh mục thu",
-                                    options=category_options,
-                                    index=selected_index,
-                                    key="edit_income_category"
-                                )
-                                
-                                # Extract category_id from selection
-                                edit_category_id = edit_category.split(' - ')[0] if edit_category else ""
-                            else:
-                                st.warning("Chưa có danh mục thu.")
-                                edit_category_id = income_info['category']
-                        
-                        with edit_col2:
-                            # Payment method
-                            payment_options = ["Tiền mặt", "Chuyển khoản", "Thẻ Visa", "Ví điện tử", "Khác"]
-                            payment_index = payment_options.index(income_info['payment_method']) if income_info['payment_method'] in payment_options else 0
-                            
-                            edit_payment = st.selectbox(
-                                "Phương thức thanh toán",
-                                options=payment_options,
-                                index=payment_index,
-                                key="edit_income_payment"
-                            )
-                            
-                            # Amount
-                            edit_amount = st.number_input(
-                                "Số tiền (VND)", 
-                                min_value=0, 
-                                value=int(income_info['amount']), 
-                                step=10000,
-                                key="edit_income_amount"
-                            )
-                        
-                        # Description
-                        edit_description = st.text_area(
-                            "Mô tả chi tiết",
-                            value=income_info['description'],
-                            key="edit_income_description"
+                        # Format for display
+                        exp_expenses_display = expected_expenses.copy()
+                        exp_expenses_display['category_name'] = exp_expenses_display['category'].map(
+                            lambda x: category_dict.get(x, x)
                         )
                         
-                        # Update and Delete buttons
-                        col1, col2 = st.columns(2)
+                        display_exp_expenses = pd.DataFrame({
+                            'Mã giao dịch': exp_expenses_display['transaction_id'],
+                            'Ngày': exp_expenses_display['date'],
+                            'Danh mục': exp_expenses_display['category_name'],
+                            'Mô tả': exp_expenses_display['description'],
+                            'Số tiền': exp_expenses_display['amount'].apply(lambda x: f"{x:,.0f} VND"),
+                            'Thanh toán': exp_expenses_display['payment_method'],
+                            'Trạng thái': exp_expenses_display['is_completed'].apply(
+                                lambda x: "✅ Hoàn thành" if x else "⏳ Chưa hoàn thành"
+                            )
+                        })
                         
-                        with col1:
-                            if st.button("Cập nhật", key="update_income_btn"):
-                                if not edit_category_id:
-                                    st.error("Vui lòng chọn danh mục thu")
-                                elif edit_amount <= 0:
-                                    st.error("Vui lòng nhập số tiền hợp lệ")
+                        st.dataframe(display_exp_expenses, use_container_width=True)
+                    else:
+                        st.dataframe(expected_expenses[['date', 'category', 'description', 'amount', 'payment_method', 'is_completed']])
+                    
+                    # Add edit functionality for expected expenses
+                    st.write("### Chỉnh sửa khoản Chi dự kiến")
+                    
+                    # Create expense options for selection
+                    exp_expense_options = []
+                    for _, expense in expected_expenses.iterrows():
+                        category_name = category_dict.get(expense['category'], expense['category']) if 'category_dict' in locals() else expense['category']
+                        status_text = "✅" if expense['is_completed'] else "⏳"
+                        exp_expense_options.append(f"{expense['transaction_id']} - {expense['date']} - {category_name} - {expense['amount']:,.0f} VND ({status_text})")
+                    
+                    selected_exp_expense = st.selectbox(
+                        "Chọn khoản chi dự kiến để chỉnh sửa",
+                        options=exp_expense_options,
+                        key="edit_exp_expense_select"
+                    )
+                    
+                    if selected_exp_expense:
+                        # Extract transaction_id from selection
+                        selected_transaction_id = selected_exp_expense.split(' - ')[0]
+                        
+                        # Find the expense data
+                        exp_expense_data = expected_expenses[expected_expenses['transaction_id'] == selected_transaction_id]
+                        
+                        if not exp_expense_data.empty:
+                            exp_expense_idx = exp_expense_data.index[0]
+                            exp_expense_info = exp_expense_data.iloc[0]
+                            
+                            st.write("#### Thông tin hiện tại")
+                            st.write(f"Ngày: {exp_expense_info['date']}")
+                            st.write(f"Danh mục: {category_dict.get(exp_expense_info['category'], exp_expense_info['category']) if 'category_dict' in locals() else exp_expense_info['category']}")
+                            st.write(f"Mô tả: {exp_expense_info['description']}")
+                            st.write(f"Số tiền: {exp_expense_info['amount']:,.0f} VND")
+                            st.write(f"Thanh toán: {exp_expense_info['payment_method']}")
+                            st.write(f"Trạng thái: {'Đã hoàn thành' if exp_expense_info['is_completed'] else 'Chưa hoàn thành'}")
+                            
+                            st.write("#### Cập nhật thông tin")
+                            
+                            # Edit form
+                            edit_col1, edit_col2 = st.columns(2)
+                            
+                            with edit_col1:
+                                # Convert string date to datetime.date
+                                current_date = datetime.datetime.strptime(exp_expense_info['date'], "%Y-%m-%d").date()
+                                
+                                # Date of expense
+                                edit_exp_date = st.date_input(
+                                    "Ngày chi dự kiến", 
+                                    value=current_date,
+                                    key="edit_exp_expense_date"
+                                ).strftime("%Y-%m-%d")
+                                
+                                # Expense category
+                                if not expense_categories.empty:
+                                    # Find current category index
+                                    category_options = []
+                                    selected_index = 0
+                                    
+                                    for i, (_, category) in enumerate(expense_categories.iterrows()):
+                                        category_options.append(f"{category['category_id']} - {category['name']}")
+                                        if category['category_id'] == exp_expense_info['category']:
+                                            selected_index = i
+                                    
+                                    edit_exp_category = st.selectbox(
+                                        "Danh mục chi",
+                                        options=category_options,
+                                        index=selected_index,
+                                        key="edit_exp_expense_category"
+                                    )
+                                    
+                                    # Extract category_id from selection
+                                    edit_exp_category_id = edit_exp_category.split(' - ')[0] if edit_exp_category else ""
                                 else:
-                                    # Update income
-                                    st.session_state.family_expenses.at[income_idx, 'date'] = edit_date
-                                    st.session_state.family_expenses.at[income_idx, 'category'] = edit_category_id
-                                    st.session_state.family_expenses.at[income_idx, 'description'] = edit_description
-                                    st.session_state.family_expenses.at[income_idx, 'amount'] = edit_amount
-                                    st.session_state.family_expenses.at[income_idx, 'payment_method'] = edit_payment
+                                    st.warning("Chưa có danh mục chi.")
+                                    edit_exp_category_id = exp_expense_info['category']
+                            
+                            with edit_col2:
+                                # Payment method
+                                payment_options = ["Tiền mặt", "Thẻ Visa", "Chuyển khoản", "Ví điện tử", "Khác"]
+                                payment_index = payment_options.index(exp_expense_info['payment_method']) if exp_expense_info['payment_method'] in payment_options else 0
+                                
+                                edit_exp_payment = st.selectbox(
+                                    "Phương thức thanh toán",
+                                    options=payment_options,
+                                    index=payment_index,
+                                    key="edit_exp_expense_payment"
+                                )
+                                
+                                # Amount
+                                edit_exp_amount = st.number_input(
+                                    "Số tiền dự kiến (VND)", 
+                                    min_value=0, 
+                                    value=int(exp_expense_info['amount']), 
+                                    step=10000,
+                                    key="edit_exp_expense_amount"
+                                )
+                                
+                                # Completion status
+                                edit_exp_completed = st.checkbox(
+                                    "Đã hoàn thành",
+                                    value=exp_expense_info['is_completed'],
+                                    key="edit_exp_expense_completed"
+                                )
+                            
+                            # Description
+                            edit_exp_description = st.text_area(
+                                "Mô tả chi tiết",
+                                value=exp_expense_info['description'],
+                                key="edit_exp_expense_description"
+                            )
+                            
+                            # Add "Convert to actual expense" button
+                            convert_to_actual = st.checkbox(
+                                "Chuyển thành khoản chi thực tế",
+                                value=False,
+                                key="convert_exp_to_actual"
+                            )
+                            
+                            # Update, Delete, and Convert buttons
+                            col1, col2, col3 = st.columns(3)
+                            
+                            with col1:
+                                if st.button("Cập nhật", key="update_exp_expense_btn"):
+                                    if not edit_exp_category_id:
+                                        st.error("Vui lòng chọn danh mục chi")
+                                    elif edit_exp_amount <= 0:
+                                        st.error("Vui lòng nhập số tiền hợp lệ")
+                                    else:
+                                        # Update expected expense
+                                        st.session_state.expected_transactions.at[exp_expense_idx, 'date'] = edit_exp_date
+                                        st.session_state.expected_transactions.at[exp_expense_idx, 'category'] = edit_exp_category_id
+                                        st.session_state.expected_transactions.at[exp_expense_idx, 'description'] = edit_exp_description
+                                        st.session_state.expected_transactions.at[exp_expense_idx, 'amount'] = edit_exp_amount
+                                        st.session_state.expected_transactions.at[exp_expense_idx, 'payment_method'] = edit_exp_payment
+                                        st.session_state.expected_transactions.at[exp_expense_idx, 'is_completed'] = edit_exp_completed
+                                        
+                                        # Save expected transactions
+                                        save_dataframe(st.session_state.expected_transactions, "expected_transactions.csv")
+                                        
+                                        st.success(f"Đã cập nhật khoản chi dự kiến thành công!")
+                                        st.rerun()  # Reload to update the display
+                            
+                            with col2:
+                                if st.button("Xóa", key="delete_exp_expense_btn"):
+                                    # Delete expected expense
+                                    st.session_state.expected_transactions = st.session_state.expected_transactions[
+                                        st.session_state.expected_transactions['transaction_id'] != selected_transaction_id
+                                    ]
+                                    
+                                    # Save expected transactions
+                                    save_dataframe(st.session_state.expected_transactions, "expected_transactions.csv")
+                                    
+                                    st.success(f"Đã xóa khoản chi dự kiến thành công!")
+                                    st.rerun()  # Reload to update the display
+                            
+                            with col3:
+                                if st.button("Chuyển đổi", key="convert_exp_expense_btn") and convert_to_actual:
+                                    # Create new actual expense from expected expense
+                                    transaction_id = f"TRX-{uuid.uuid4().hex[:8].upper()}"
+                                    
+                                    new_expense = pd.DataFrame({
+                                        'transaction_id': [transaction_id],
+                                        'date': [edit_exp_date],
+                                        'category': [edit_exp_category_id],
+                                        'description': [edit_exp_description],
+                                        'amount': [edit_exp_amount],
+                                        'payment_method': [edit_exp_payment],
+                                        'type': ['expense']
+                                    })
+                                    
+                                    # Add to actual expenses
+                                    st.session_state.family_expenses = pd.concat(
+                                        [st.session_state.family_expenses, new_expense],
+                                        ignore_index=True
+                                    )
+                                    
+                                    # Delete from expected expenses
+                                    st.session_state.expected_transactions = st.session_state.expected_transactions[
+                                        st.session_state.expected_transactions['transaction_id'] != selected_transaction_id
+                                    ]
+                                    
+                                    # Save both dataframes
+                                    save_dataframe(st.session_state.family_expenses, "family_expenses.csv")
+                                    save_dataframe(st.session_state.expected_transactions, "expected_transactions.csv")
+                                    
+                                    st.success(f"Đã chuyển đổi khoản chi dự kiến thành khoản chi thực tế thành công!")
+                                    st.rerun()  # Reload to update the display
+                else:
+                    st.info("Chưa có khoản chi dự kiến nào được lưu.")
+            else:
+                st.info("Chưa có khoản chi dự kiến nào được lưu.")
+    
+    with expense_tab3:
+        # Add toggle to switch between actual and expected income
+        income_mode = st.radio(
+            "Chọn chế độ:",
+            ["Khoản Thu thực tế", "Khoản Thu dự kiến"],
+            horizontal=True,
+            key="income_mode"
+        )
+
+        if income_mode == "Khoản Thu thực tế":
+            # Original code for actual income
+            st.subheader("Quản lý Thu nhập")
+            st.write("### Thêm khoản Thu mới")
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                # Date of income
+                income_date = st.date_input(
+                    "Ngày thu", 
+                    value=datetime.date.today(),
+                    key="income_date"
+                ).strftime("%Y-%m-%d")
+                
+                # Income category
+                income_categories = st.session_state.expense_categories[
+                    st.session_state.expense_categories['type'] == 'income'
+                ]
+                
+                if not income_categories.empty:
+                    category_options = []
+                    for _, category in income_categories.iterrows():
+                        category_options.append(f"{category['category_id']} - {category['name']}")
+                    
+                    selected_category = st.selectbox(
+                        "Danh mục thu",
+                        options=category_options,
+                        key="income_category"
+                    )
+                    
+                    # Extract category_id from selection
+                    income_category_id = selected_category.split(' - ')[0] if selected_category else ""
+                else:
+                    st.warning("Chưa có danh mục thu. Vui lòng thêm danh mục trong tab 'Tổng quát'.")
+                    income_category_id = ""
+            
+            with col2:
+                # Payment method
+                payment_method = st.selectbox(
+                    "Phương thức thanh toán",
+                    options=["Tiền mặt", "Chuyển khoản", "Thẻ Visa", "Ví điện tử", "Khác"],
+                    key="income_payment_method"
+                )
+                
+                # Amount
+                income_amount = st.number_input(
+                    "Số tiền (VND)", 
+                    min_value=0, 
+                    value=0, 
+                    step=10000,
+                    key="income_amount"
+                )
+            
+            # Description
+            income_description = st.text_area(
+                "Mô tả chi tiết",
+                key="income_description"
+            )
+            
+            # Add button to save income
+            if st.button("Lưu khoản Thu", key="save_income_btn"):
+                if not income_category_id:
+                    st.error("Vui lòng chọn danh mục thu")
+                elif income_amount <= 0:
+                    st.error("Vui lòng nhập số tiền hợp lệ")
+                else:
+                    # Generate unique transaction ID
+                    transaction_id = f"TRX-{uuid.uuid4().hex[:8].upper()}"
+                    
+                    # Create new income
+                    new_income = pd.DataFrame({
+                        'transaction_id': [transaction_id],
+                        'date': [income_date],
+                        'category': [income_category_id],
+                        'description': [income_description],
+                        'amount': [income_amount],
+                        'payment_method': [payment_method],
+                        'type': ['income']
+                    })
+                    
+                    # Add to existing expenses
+                    st.session_state.family_expenses = pd.concat(
+                        [st.session_state.family_expenses, new_income],
+                        ignore_index=True
+                    )
+                    
+                    # Save family expenses
+                    save_dataframe(st.session_state.family_expenses, "family_expenses.csv")
+                    
+                    st.success(f"Đã lưu khoản thu {income_amount:,.0f} VND thành công!")
+                    st.rerun()  # Reload to update the display
+            
+            # Display existing income
+            st.write("### Khoản Thu đã lưu")
+            
+            if not st.session_state.family_expenses.empty:
+                # Filter only income type records
+                income = st.session_state.family_expenses[
+                    st.session_state.family_expenses['type'] == 'income'
+                ].sort_values('date', ascending=False)
+                
+                if not income.empty:
+                    # Get category names
+                    if not st.session_state.expense_categories.empty:
+                        # Create a dictionary of category_id to name
+                        category_dict = dict(zip(
+                            st.session_state.expense_categories['category_id'],
+                            st.session_state.expense_categories['name']
+                        ))
+                        
+                        # Format for display
+                        income_display = income.copy()
+                        income_display['category_name'] = income_display['category'].map(
+                            lambda x: category_dict.get(x, x)
+                        )
+                        
+                        display_income = pd.DataFrame({
+                            'Mã giao dịch': income_display['transaction_id'],
+                            'Ngày': income_display['date'],
+                            'Danh mục': income_display['category_name'],
+                            'Mô tả': income_display['description'],
+                            'Số tiền': income_display['amount'].apply(lambda x: f"{x:,.0f} VND"),
+                            'Thanh toán': income_display['payment_method']
+                        })
+                        
+                        st.dataframe(display_income, use_container_width=True)
+                    else:
+                        st.dataframe(income[['date', 'category', 'description', 'amount', 'payment_method']])
+                    
+                    # Add edit functionality
+                    st.write("### Chỉnh sửa khoản Thu")
+                    
+                    # Create income options for selection
+                    income_options = []
+                    for _, income_item in income.iterrows():
+                        category_name = category_dict.get(income_item['category'], income_item['category']) if 'category_dict' in locals() else income_item['category']
+                        income_options.append(f"{income_item['transaction_id']} - {income_item['date']} - {category_name} - {income_item['amount']:,.0f} VND")
+                    
+                    selected_income = st.selectbox(
+                        "Chọn khoản thu để chỉnh sửa",
+                        options=income_options,
+                        key="edit_income_select"
+                    )
+                    
+                    if selected_income:
+                        # Extract transaction_id from selection
+                        selected_transaction_id = selected_income.split(' - ')[0]
+                        
+                        # Find the income data
+                        income_data = income[income['transaction_id'] == selected_transaction_id]
+                        
+                        if not income_data.empty:
+                            income_idx = income_data.index[0]
+                            income_info = income_data.iloc[0]
+                            
+                            st.write("#### Thông tin hiện tại")
+                            st.write(f"Ngày: {income_info['date']}")
+                            st.write(f"Danh mục: {category_dict.get(income_info['category'], income_info['category']) if 'category_dict' in locals() else income_info['category']}")
+                            st.write(f"Mô tả: {income_info['description']}")
+                            st.write(f"Số tiền: {income_info['amount']:,.0f} VND")
+                            st.write(f"Thanh toán: {income_info['payment_method']}")
+                            
+                            st.write("#### Cập nhật thông tin")
+                            
+                            # Edit form
+                            edit_col1, edit_col2 = st.columns(2)
+                            
+                            with edit_col1:
+                                # Convert string date to datetime.date
+                                current_date = datetime.datetime.strptime(income_info['date'], "%Y-%m-%d").date()
+                                
+                                # Date of income
+                                edit_date = st.date_input(
+                                    "Ngày thu", 
+                                    value=current_date,
+                                    key="edit_income_date"
+                                ).strftime("%Y-%m-%d")
+                                
+                                # Income category
+                                if not income_categories.empty:
+                                    # Find current category index
+                                    category_options = []
+                                    selected_index = 0
+                                    
+                                    for i, (_, category) in enumerate(income_categories.iterrows()):
+                                        category_options.append(f"{category['category_id']} - {category['name']}")
+                                        if category['category_id'] == income_info['category']:
+                                            selected_index = i
+                                    
+                                    edit_category = st.selectbox(
+                                        "Danh mục thu",
+                                        options=category_options,
+                                        index=selected_index,
+                                        key="edit_income_category"
+                                    )
+                                    
+                                    # Extract category_id from selection
+                                    edit_category_id = edit_category.split(' - ')[0] if edit_category else ""
+                                else:
+                                    st.warning("Chưa có danh mục thu.")
+                                    edit_category_id = income_info['category']
+                            
+                            with edit_col2:
+                                # Payment method
+                                payment_options = ["Tiền mặt", "Chuyển khoản", "Thẻ Visa", "Ví điện tử", "Khác"]
+                                payment_index = payment_options.index(income_info['payment_method']) if income_info['payment_method'] in payment_options else 0
+                                
+                                edit_payment = st.selectbox(
+                                    "Phương thức thanh toán",
+                                    options=payment_options,
+                                    index=payment_index,
+                                    key="edit_income_payment"
+                                )
+                                
+                                # Amount
+                                edit_amount = st.number_input(
+                                    "Số tiền (VND)", 
+                                    min_value=0, 
+                                    value=int(income_info['amount']), 
+                                    step=10000,
+                                    key="edit_income_amount"
+                                )
+                            
+                            # Description
+                            edit_description = st.text_area(
+                                "Mô tả chi tiết",
+                                value=income_info['description'],
+                                key="edit_income_description"
+                            )
+                            
+                            # Update and Delete buttons
+                            col1, col2 = st.columns(2)
+                            
+                            with col1:
+                                if st.button("Cập nhật", key="update_income_btn"):
+                                    if not edit_category_id:
+                                        st.error("Vui lòng chọn danh mục thu")
+                                    elif edit_amount <= 0:
+                                        st.error("Vui lòng nhập số tiền hợp lệ")
+                                    else:
+                                        # Update income
+                                        st.session_state.family_expenses.at[income_idx, 'date'] = edit_date
+                                        st.session_state.family_expenses.at[income_idx, 'category'] = edit_category_id
+                                        st.session_state.family_expenses.at[income_idx, 'description'] = edit_description
+                                        st.session_state.family_expenses.at[income_idx, 'amount'] = edit_amount
+                                        st.session_state.family_expenses.at[income_idx, 'payment_method'] = edit_payment
+                                        
+                                        # Save family expenses
+                                        save_dataframe(st.session_state.family_expenses, "family_expenses.csv")
+                                        
+                                        st.success(f"Đã cập nhật khoản thu thành công!")
+                                        st.rerun()  # Reload to update the display
+                            
+                            with col2:
+                                if st.button("Xóa", key="delete_income_btn"):
+                                    # Delete income
+                                    st.session_state.family_expenses = st.session_state.family_expenses[
+                                        st.session_state.family_expenses['transaction_id'] != selected_transaction_id
+                                    ]
                                     
                                     # Save family expenses
                                     save_dataframe(st.session_state.family_expenses, "family_expenses.csv")
                                     
-                                    st.success(f"Đã cập nhật khoản thu thành công!")
+                                    st.success(f"Đã xóa khoản thu thành công!")
                                     st.rerun()  # Reload to update the display
-                        
-                        with col2:
-                            if st.button("Xóa", key="delete_income_btn"):
-                                # Delete income
-                                st.session_state.family_expenses = st.session_state.family_expenses[
-                                    st.session_state.family_expenses['transaction_id'] != selected_transaction_id
-                                ]
-                                
-                                # Save family expenses
-                                save_dataframe(st.session_state.family_expenses, "family_expenses.csv")
-                                
-                                st.success(f"Đã xóa khoản thu thành công!")
-                                st.rerun()  # Reload to update the display
+                else:
+                    st.info("Chưa có khoản thu nào được lưu.")
             else:
                 st.info("Chưa có khoản thu nào được lưu.")
+        
         else:
-            st.info("Chưa có khoản thu nào được lưu.")
+            # Add new UI for expected income
+            st.subheader("Quản lý Thu nhập dự kiến")
+            st.write("### Thêm khoản Thu dự kiến")
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                # Date of expected income
+                exp_income_date = st.date_input(
+                    "Ngày thu dự kiến", 
+                    value=datetime.date.today() + datetime.timedelta(days=7),  # Default to a week from now
+                    key="exp_income_date"
+                ).strftime("%Y-%m-%d")
+                
+                # Income category
+                income_categories = st.session_state.expense_categories[
+                    st.session_state.expense_categories['type'] == 'income'
+                ]
+                
+                if not income_categories.empty:
+                    category_options = []
+                    for _, category in income_categories.iterrows():
+                        category_options.append(f"{category['category_id']} - {category['name']}")
+                    
+                    selected_category = st.selectbox(
+                        "Danh mục thu",
+                        options=category_options,
+                        key="exp_income_category"
+                    )
+                    
+                    # Extract category_id from selection
+                    exp_income_category_id = selected_category.split(' - ')[0] if selected_category else ""
+                else:
+                    st.warning("Chưa có danh mục thu. Vui lòng thêm danh mục trong tab 'Tổng quát'.")
+                    exp_income_category_id = ""
+            
+            with col2:
+                # Payment method
+                exp_payment_method = st.selectbox(
+                    "Phương thức thanh toán",
+                    options=["Tiền mặt", "Chuyển khoản", "Thẻ Visa", "Ví điện tử", "Khác"],
+                    key="exp_income_payment_method"
+                )
+                
+                # Amount
+                exp_income_amount = st.number_input(
+                    "Số tiền dự kiến (VND)", 
+                    min_value=0, 
+                    value=0, 
+                    step=10000,
+                    key="exp_income_amount"
+                )
+            
+            # Description
+            exp_income_description = st.text_area(
+                "Mô tả chi tiết",
+                key="exp_income_description"
+            )
+            
+            # Completion status (default to not completed)
+            exp_income_completed = st.checkbox(
+                "Đã hoàn thành",
+                value=False,
+                key="exp_income_completed"
+            )
+            
+            # Add button to save expected income
+            if st.button("Lưu khoản Thu dự kiến", key="save_exp_income_btn"):
+                if not exp_income_category_id:
+                    st.error("Vui lòng chọn danh mục thu")
+                elif exp_income_amount <= 0:
+                    st.error("Vui lòng nhập số tiền hợp lệ")
+                else:
+                    # Generate unique transaction ID
+                    transaction_id = f"EXP-{uuid.uuid4().hex[:8].upper()}"
+                    
+                    # Create new expected income
+                    new_exp_income = pd.DataFrame({
+                        'transaction_id': [transaction_id],
+                        'date': [exp_income_date],
+                        'category': [exp_income_category_id],
+                        'description': [exp_income_description],
+                        'amount': [exp_income_amount],
+                        'payment_method': [exp_payment_method],
+                        'type': ['income'],
+                        'is_completed': [exp_income_completed]
+                    })
+                    
+                    # Add to existing expected transactions
+                    st.session_state.expected_transactions = pd.concat(
+                        [st.session_state.expected_transactions, new_exp_income],
+                        ignore_index=True
+                    )
+                    
+                    # Save expected transactions
+                    save_dataframe(st.session_state.expected_transactions, "expected_transactions.csv")
+                    
+                    st.success(f"Đã lưu khoản thu dự kiến {exp_income_amount:,.0f} VND thành công!")
+                    st.rerun()  # Reload to update the display
+                    
+            # Display existing expected income
+            st.write("### Khoản Thu dự kiến đã lưu")
+            
+            if not st.session_state.expected_transactions.empty:
+                # Filter only expected income type records
+                expected_income = st.session_state.expected_transactions[
+                    (st.session_state.expected_transactions['type'] == 'income')
+                ].sort_values('date', ascending=False)
+                
+                if not expected_income.empty:
+                    # Get category names
+                    if not st.session_state.expense_categories.empty:
+                        # Create a dictionary of category_id to name
+                        category_dict = dict(zip(
+                            st.session_state.expense_categories['category_id'],
+                            st.session_state.expense_categories['name']
+                        ))
+                        
+                        # Format for display
+                        exp_income_display = expected_income.copy()
+                        exp_income_display['category_name'] = exp_income_display['category'].map(
+                            lambda x: category_dict.get(x, x)
+                        )
+                        
+                        display_exp_income = pd.DataFrame({
+                            'Mã giao dịch': exp_income_display['transaction_id'],
+                            'Ngày': exp_income_display['date'],
+                            'Danh mục': exp_income_display['category_name'],
+                            'Mô tả': exp_income_display['description'],
+                            'Số tiền': exp_income_display['amount'].apply(lambda x: f"{x:,.0f} VND"),
+                            'Thanh toán': exp_income_display['payment_method'],
+                            'Trạng thái': exp_income_display['is_completed'].apply(
+                                lambda x: "✅ Hoàn thành" if x else "⏳ Chưa hoàn thành"
+                            )
+                        })
+                        
+                        st.dataframe(display_exp_income, use_container_width=True)
+                    else:
+                        st.dataframe(expected_income[['date', 'category', 'description', 'amount', 'payment_method', 'is_completed']])
+                    
+                    # Add edit functionality for expected income
+                    st.write("### Chỉnh sửa khoản Thu dự kiến")
+                    
+                    # Create income options for selection
+                    exp_income_options = []
+                    for _, income_item in expected_income.iterrows():
+                        category_name = category_dict.get(income_item['category'], income_item['category']) if 'category_dict' in locals() else income_item['category']
+                        status_text = "✅" if income_item['is_completed'] else "⏳"
+                        exp_income_options.append(f"{income_item['transaction_id']} - {income_item['date']} - {category_name} - {income_item['amount']:,.0f} VND ({status_text})")
+                    
+                    selected_exp_income = st.selectbox(
+                        "Chọn khoản thu dự kiến để chỉnh sửa",
+                        options=exp_income_options,
+                        key="edit_exp_income_select"
+                    )
+                    
+                    if selected_exp_income:
+                        # Extract transaction_id from selection
+                        selected_transaction_id = selected_exp_income.split(' - ')[0]
+                        
+                        # Find the income data
+                        exp_income_data = expected_income[expected_income['transaction_id'] == selected_transaction_id]
+                        
+                        if not exp_income_data.empty:
+                            exp_income_idx = exp_income_data.index[0]
+                            exp_income_info = exp_income_data.iloc[0]
+                            
+                            st.write("#### Thông tin hiện tại")
+                            st.write(f"Ngày: {exp_income_info['date']}")
+                            st.write(f"Danh mục: {category_dict.get(exp_income_info['category'], exp_income_info['category']) if 'category_dict' in locals() else exp_income_info['category']}")
+                            st.write(f"Mô tả: {exp_income_info['description']}")
+                            st.write(f"Số tiền: {exp_income_info['amount']:,.0f} VND")
+                            st.write(f"Thanh toán: {exp_income_info['payment_method']}")
+                            st.write(f"Trạng thái: {'Đã hoàn thành' if exp_income_info['is_completed'] else 'Chưa hoàn thành'}")
+                            
+                            st.write("#### Cập nhật thông tin")
+                            
+                            # Edit form
+                            edit_col1, edit_col2 = st.columns(2)
+                            
+                            with edit_col1:
+                                # Convert string date to datetime.date
+                                current_date = datetime.datetime.strptime(exp_income_info['date'], "%Y-%m-%d").date()
+                                
+                                # Date of income
+                                edit_exp_date = st.date_input(
+                                    "Ngày thu dự kiến", 
+                                    value=current_date,
+                                    key="edit_exp_income_date"
+                                ).strftime("%Y-%m-%d")
+                                
+                                # Income category
+                                if not income_categories.empty:
+                                    # Find current category index
+                                    category_options = []
+                                    selected_index = 0
+                                    
+                                    for i, (_, category) in enumerate(income_categories.iterrows()):
+                                        category_options.append(f"{category['category_id']} - {category['name']}")
+                                        if category['category_id'] == exp_income_info['category']:
+                                            selected_index = i
+                                    
+                                    edit_exp_category = st.selectbox(
+                                        "Danh mục thu",
+                                        options=category_options,
+                                        index=selected_index,
+                                        key="edit_exp_income_category"
+                                    )
+                                    
+                                    # Extract category_id from selection
+                                    edit_exp_category_id = edit_exp_category.split(' - ')[0] if edit_exp_category else ""
+                                else:
+                                    st.warning("Chưa có danh mục thu.")
+                                    edit_exp_category_id = exp_income_info['category']
+                            
+                            with edit_col2:
+                                # Payment method
+                                payment_options = ["Tiền mặt", "Chuyển khoản", "Thẻ Visa", "Ví điện tử", "Khác"]
+                                payment_index = payment_options.index(exp_income_info['payment_method']) if exp_income_info['payment_method'] in payment_options else 0
+                                
+                                edit_exp_payment = st.selectbox(
+                                    "Phương thức thanh toán",
+                                    options=payment_options,
+                                    index=payment_index,
+                                    key="edit_exp_income_payment"
+                                )
+                                
+                                # Amount
+                                edit_exp_amount = st.number_input(
+                                    "Số tiền dự kiến (VND)", 
+                                    min_value=0, 
+                                    value=int(exp_income_info['amount']), 
+                                    step=10000,
+                                    key="edit_exp_income_amount"
+                                )
+                                
+                                # Completion status
+                                edit_exp_completed = st.checkbox(
+                                    "Đã hoàn thành",
+                                    value=exp_income_info['is_completed'],
+                                    key="edit_exp_income_completed"
+                                )
+                            
+                            # Description
+                            edit_exp_description = st.text_area(
+                                "Mô tả chi tiết",
+                                value=exp_income_info['description'],
+                                key="edit_exp_income_description"
+                            )
+                            
+                            # Add "Convert to actual income" button
+                            convert_to_actual = st.checkbox(
+                                "Chuyển thành khoản thu thực tế",
+                                value=False,
+                                key="convert_exp_to_actual"
+                            )
+                            
+                            # Update, Delete, and Convert buttons
+                            col1, col2, col3 = st.columns(3)
+                            
+                            with col1:
+                                if st.button("Cập nhật", key="update_exp_income_btn"):
+                                    if not edit_exp_category_id:
+                                        st.error("Vui lòng chọn danh mục thu")
+                                    elif edit_exp_amount <= 0:
+                                        st.error("Vui lòng nhập số tiền hợp lệ")
+                                    else:
+                                        # Update expected income
+                                        st.session_state.expected_transactions.at[exp_income_idx, 'date'] = edit_exp_date
+                                        st.session_state.expected_transactions.at[exp_income_idx, 'category'] = edit_exp_category_id
+                                        st.session_state.expected_transactions.at[exp_income_idx, 'description'] = edit_exp_description
+                                        st.session_state.expected_transactions.at[exp_income_idx, 'amount'] = edit_exp_amount
+                                        st.session_state.expected_transactions.at[exp_income_idx, 'payment_method'] = edit_exp_payment
+                                        st.session_state.expected_transactions.at[exp_income_idx, 'is_completed'] = edit_exp_completed
+                                        
+                                        # Save expected transactions
+                                        save_dataframe(st.session_state.expected_transactions, "expected_transactions.csv")
+                                        
+                                        st.success(f"Đã cập nhật khoản thu dự kiến thành công!")
+                                        st.rerun()  # Reload to update the display
+                            
+                            with col2:
+                                if st.button("Xóa", key="delete_exp_income_btn"):
+                                    # Delete expected income
+                                    st.session_state.expected_transactions = st.session_state.expected_transactions[
+                                        st.session_state.expected_transactions['transaction_id'] != selected_transaction_id
+                                    ]
+                                    
+                                    # Save expected transactions
+                                    save_dataframe(st.session_state.expected_transactions, "expected_transactions.csv")
+                                    
+                                    st.success(f"Đã xóa khoản thu dự kiến thành công!")
+                                    st.rerun()  # Reload to update the display
+                            
+                            with col3:
+                                if st.button("Chuyển đổi", key="convert_exp_income_btn") and convert_to_actual:
+                                    # Create new actual income from expected income
+                                    transaction_id = f"TRX-{uuid.uuid4().hex[:8].upper()}"
+                                    
+                                    new_income = pd.DataFrame({
+                                        'transaction_id': [transaction_id],
+                                        'date': [edit_exp_date],
+                                        'category': [edit_exp_category_id],
+                                        'description': [edit_exp_description],
+                                        'amount': [edit_exp_amount],
+                                        'payment_method': [edit_exp_payment],
+                                        'type': ['income']
+                                    })
+                                    
+                                    # Add to actual income
+                                    st.session_state.family_expenses = pd.concat(
+                                        [st.session_state.family_expenses, new_income],
+                                        ignore_index=True
+                                    )
+                                    
+                                    # Delete from expected income
+                                    st.session_state.expected_transactions = st.session_state.expected_transactions[
+                                        st.session_state.expected_transactions['transaction_id'] != selected_transaction_id
+                                    ]
+                                    
+                                    # Save both dataframes
+                                    save_dataframe(st.session_state.family_expenses, "family_expenses.csv")
+                                    save_dataframe(st.session_state.expected_transactions, "expected_transactions.csv")
+                                    
+                                    st.success(f"Đã chuyển đổi khoản thu dự kiến thành khoản thu thực tế thành công!")
+                                    st.rerun()  # Reload to update the display
+                else:
+                    st.info("Chưa có khoản thu dự kiến nào được lưu.")
+            else:
+                st.info("Chưa có khoản thu dự kiến nào được lưu.")
