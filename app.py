@@ -353,7 +353,7 @@ def setup_vietnamese_font():
         # Fall back to Helvetica
         return 'Helvetica'
 
-ddef save_all_data():
+def save_all_data():
     """Save all dataframes to CSV files"""
     save_dataframe(st.session_state.products, "products.csv")
     save_dataframe(st.session_state.materials, "materials.csv")
